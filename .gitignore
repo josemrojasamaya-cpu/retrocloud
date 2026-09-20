@@ -2,6 +2,7 @@
 .idea/
 build/
 **/build/
+work/
 local.properties
 *.iml
 *.keystore
@@ -17,4 +18,3 @@ saves/
 *.bin
 *.cue
 *.z64
-
