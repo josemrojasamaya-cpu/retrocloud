@@ -23,6 +23,8 @@ gradle :app:assembleDebug
 
 La APK, si la compilación termina, queda en `app/build/outputs/apk/debug/app-debug.apk`.
 
+La preparación de Windows, versiones verificadas, correcciones y pasos de instalación están en [docs/COMPILACION_WINDOWS.md](docs/COMPILACION_WINDOWS.md).
+
 ## Probar la demostración
 
 1. Instala la APK en un proyector Android compatible.
