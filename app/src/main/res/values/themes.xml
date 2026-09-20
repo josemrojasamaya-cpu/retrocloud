@@ -2,6 +2,7 @@
     <style name="Theme.RetroSala" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowFullscreen">true</item>
-        <item name="android:colorAccent">#7C4DFF</item>
+        <item name="android:colorAccent">#B9FF3B</item>
+        <item name="android:navigationBarColor">#080A14</item>
     </style>
 </resources>

@@ -14,9 +14,10 @@ data class RemoteCatalogGame(
     val platform: String,
     val language: String,
     val emulationServer: String,
-    val streamingAvailable: Boolean,
+    val available: Boolean,
     val players: Int,
-    val description: String
+    val description: String,
+    val coverUrl: String?
 )
 
 interface SessionApi {
@@ -36,8 +37,8 @@ class HttpSessionApi(private val configuration: ServerConfiguration) : SessionAp
             RemoteCatalogGame(
                 gameId = item.getString("gameId"), title = item.getString("title"), platform = item.getString("platform"),
                 language = item.getString("language"), emulationServer = item.getString("emulationServer"),
-                streamingAvailable = item.getBoolean("streamingAvailable"), players = item.getInt("players"),
-                description = item.getString("description")
+                available = item.getBoolean("available"), players = item.getInt("players"),
+                description = item.getString("description"), coverUrl = item.optString("coverUrl").ifBlank { null }
             )
         }
     }
@@ -45,7 +46,10 @@ class HttpSessionApi(private val configuration: ServerConfiguration) : SessionAp
         SessionBootstrap(it.getString("id"), it.getString("status"))
     }
     override suspend fun sendControl(sessionId: String, input: ControllerInput) {
-        request("POST", "/v1/sessions/$sessionId/controls", JSONObject().put("control", input.control).put("pressed", input.pressed))
+        request("POST", "/v1/sessions/$sessionId/controls", JSONObject().put("control", input.control).put("pressed", input.pressed).apply {
+            input.normalizedX?.let { put("x", it) }
+            input.normalizedY?.let { put("y", it) }
+        })
     }
     override suspend fun pause(sessionId: String) { request("POST", "/v1/sessions/$sessionId/pause", JSONObject()) }
     override suspend fun save(sessionId: String) { request("POST", "/v1/sessions/$sessionId/save", JSONObject()) }

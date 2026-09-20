@@ -13,7 +13,13 @@ data class RemoteSession(
 
 data class VideoFrame(val encodedPayload: ByteArray, val timestampMs: Long)
 data class AudioPacket(val encodedPayload: ByteArray, val timestampMs: Long)
-data class ControllerInput(val player: Int, val control: String, val pressed: Boolean)
+data class ControllerInput(
+    val player: Int,
+    val control: String,
+    val pressed: Boolean,
+    val normalizedX: Float? = null,
+    val normalizedY: Float? = null
+)
 
 sealed interface RemoteSessionStatus {
     data object Idle : RemoteSessionStatus

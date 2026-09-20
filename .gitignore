@@ -10,6 +10,7 @@ local.properties
 *.apk
 secrets.properties
 server/.env
+.kotlin/
 roms/
 bios/
 saves/

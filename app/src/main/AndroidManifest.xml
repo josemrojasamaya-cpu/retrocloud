@@ -5,7 +5,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application
         android:allowBackup="true"
-        android:label="RetroSala"
+        android:label="Gran Z Retro"
         android:theme="@style/Theme.RetroSala"
         android:usesCleartextTraffic="true">
         <activity android:name=".MainActivity" android:screenOrientation="landscape" android:exported="true">
@@ -17,4 +17,3 @@
         </activity>
     </application>
 </manifest>
-

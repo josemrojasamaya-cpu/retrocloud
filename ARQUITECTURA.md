@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-    P[Celular: mando web] -->|WebSocket por Wi-Fi| A[APK RetroSala ligera<br/>proyector]
+    P[Celular: mando web Gran Z Retro] -->|WebSocket por Wi-Fi| A[APK Gran Z Retro ligera<br/>proyector]
     A -->|HTTPS: catálogo y credenciales| C[API de catálogo]
     A -->|HTTPS: crear/cerrar sesión| S[Servidor de autenticación y sesiones]
     S -->|asigna sesión| E[Servidor remoto de emulación]
@@ -21,6 +21,12 @@ flowchart LR
 | Sesiones/autenticación | Autoriza al usuario, crea sesiones y emite credenciales efímeras | Transmitir medios directamente |
 | Emulación remota | Ejecuta emuladores, procesa controles y produce vídeo/audio | Exponer ROMs o BIOS al cliente |
 | Almacenamiento remoto | Conserva juegos autorizados, BIOS y partidas | Ser público o estar versionado en Git |
+
+## Experiencia actual
+
+Gran Z Retro, creado y fundado por José Amaya, presenta primero las plataformas GBA y Nintendo DS. PlayStation 1 y PlayStation 2 aparecen como próximas plataformas, sin catálogo ni emulación local.
+
+El catálogo remoto agrupa sólo juegos `available` y utiliza `gameId`, plataforma `gba` o `nds`, título, idioma, cantidad de jugadores y `coverUrl` opcional. El mando QR conserva los mensajes `control:down` y `control:up`, y añade joystick normalizado y eventos táctiles normalizados para Nintendo DS. WebRTC continúa pendiente: el contrato ya reserva medios para una o dos pantallas de DS, pero todavía no reproduce vídeo ni audio.
 
 ## Flujo de una partida
 

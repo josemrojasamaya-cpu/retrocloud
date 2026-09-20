@@ -5,6 +5,7 @@
     "file": "gba/archivo-autorizado.gba",
     "language": "es",
     "emulationServer": "retro-gba-01",
+    "coverUrl": null,
     "players": 1,
     "description": "Archivo privado proporcionado por el propietario."
   },
@@ -14,6 +15,7 @@
     "file": "ds/archivo-autorizado.nds",
     "language": "es",
     "emulationServer": "retro-ds-01",
+    "coverUrl": null,
     "players": 1,
     "description": "Archivo privado proporcionado por el propietario."
   }

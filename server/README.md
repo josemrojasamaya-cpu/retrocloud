@@ -19,7 +19,7 @@ La APK consulta `GET /v1/catalog` y recibe únicamente los metadatos públicos d
 
 En el host Linux, copia `catalog.private.example.json` como `games-private/catalog.json`, ajusta los identificadores y coloca los archivos autorizados en subcarpetas privadas, por ejemplo `games-private/gba/` y `games-private/ds/`. `catalog.json` queda ignorado por Git junto con los archivos de juego.
 
-Antes de habilitar una biblioteca para el proyector, el host debe contener los archivos privados autorizados y sus dependencias de emulación. La bandera `streamingAvailable` permanece en `false` hasta que se implemente la captura y WebRTC.
+Antes de habilitar una biblioteca para el proyector, el host debe contener los archivos privados autorizados y sus dependencias de emulación. La API confirma `available: true` sólo cuando el archivo privado existe; WebRTC y la reproducción siguen pendientes.
 
 ## Emuladores preparados
 

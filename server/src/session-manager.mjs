@@ -43,10 +43,11 @@ export class SessionManager {
         games.push({
           gameId,
           title: typeof game.title === "string" && game.title.trim() ? game.title.trim() : gameId,
-          platform: game.platform,
+          platform: game.platform === "ds" ? "nds" : "gba",
           language: typeof game.language === "string" ? game.language : "es",
           emulationServer: typeof game.emulationServer === "string" ? game.emulationServer : "default",
-          streamingAvailable: false,
+          available: true,
+          coverUrl: typeof game.coverUrl === "string" ? game.coverUrl : null,
           players: Number.isInteger(game.players) && game.players > 0 ? game.players : 1,
           description: typeof game.description === "string" ? game.description : "Sesión privada remota."
         });
@@ -62,7 +63,12 @@ export class SessionManager {
     const session = this.#session(id);
     if (session.status !== "ready" && session.status !== "paused") throw new SessionError(409, "sesión no acepta controles");
     if (!isControl(input?.control) || typeof input?.pressed !== "boolean") throw new SessionError(400, "control inválido");
-    session.controls.push({ control: input.control, pressed: input.pressed, at: this.now() });
+    const event = { control: input.control, pressed: input.pressed, at: this.now() };
+    if (Number.isFinite(input.x) && Number.isFinite(input.y)) {
+      event.x = input.x;
+      event.y = input.y;
+    }
+    session.controls.push(event);
     return { accepted: true };
   }
   pause(id) { const s = this.#session(id); s.status = s.status === "paused" ? "ready" : "paused"; return publicSession(s); }

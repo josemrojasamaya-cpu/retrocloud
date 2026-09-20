@@ -15,6 +15,8 @@ async function fixture() {
 test("creates a private GBA session and accepts controls", async () => {
   const manager = await fixture(); const session = await manager.create("gba-demo");
   assert.equal(session.platform, "gba"); assert.equal(manager.control(session.id, { control: "A", pressed: true }).accepted, true);
+  assert.equal(manager.control(session.id, { control: "joystick", pressed: true, x: 0.25, y: -0.5 }).accepted, true);
+  assert.equal(manager.get(session.id).status, "ready");
 });
 test("lists only private catalog games whose files are present", async () => {
   const manager = await fixture();
@@ -25,7 +27,8 @@ test("lists only private catalog games whose files are present", async () => {
   }));
   const games = await manager.listCatalog();
   assert.deepEqual(games.map(game => game.gameId), ["gba-demo"]);
-  assert.equal(games[0].streamingAvailable, false);
+  assert.equal(games[0].available, true);
+  assert.equal(games[0].platform, "gba");
 });
 test("rejects an unknown gameId", async () => {
   const manager = await fixture(); await assert.rejects(() => manager.create("missing"), SessionError);

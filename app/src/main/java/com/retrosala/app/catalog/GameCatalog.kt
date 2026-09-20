@@ -2,7 +2,7 @@ package com.retrosala.app.catalog
 
 import com.retrosala.app.emulation.SessionApi
 
-enum class Platform(val label: String) { GBA("Game Boy Advance"), DS("Nintendo DS") }
+enum class Platform(val label: String) { GBA("Game Boy Advance"), NDS("Nintendo DS") }
 
 data class GameCatalogItem(
     val gameId: String,
@@ -10,10 +10,14 @@ data class GameCatalogItem(
     val platform: Platform,
     val language: String,
     val emulationServer: String,
-    val streamingAvailable: Boolean,
+    val available: Boolean,
     val players: Int,
-    val description: String
+    val description: String,
+    val coverUrl: String? = null
 )
+
+fun gamesForPlatform(games: List<GameCatalogItem>, platform: Platform): List<GameCatalogItem> =
+    games.filter { it.platform == platform && it.available }
 
 /** Reemplazable por una API HTTP. No contiene URL de ROM ni de descarga. */
 interface CatalogApi {
@@ -22,10 +26,8 @@ interface CatalogApi {
 
 class DemoCatalogApi : CatalogApi {
     override suspend fun listGames() = listOf(
-        GameCatalogItem("gba-demo-adventure", "Aventura GBA", Platform.GBA, "es", "demo-gba-01", true, 1, "Sesión remota de prueba."),
-        GameCatalogItem("gba-demo-racing", "Carreras GBA", Platform.GBA, "es", "demo-gba-01", true, 2, "Sesión remota multijugador de prueba."),
-        GameCatalogItem("ds-demo-farm", "Granja DS", Platform.DS, "es", "demo-ds-01", true, 1, "Sesión remota de prueba."),
-        GameCatalogItem("ds-demo-puzzle", "Puzzle DS", Platform.DS, "es", "demo-ds-01", true, 2, "Sesión remota multijugador de prueba.")
+        GameCatalogItem("gba-demo-classic", "Biblioteca GBA", Platform.GBA, "es", "demo-gba-01", true, 1, "Juego de demostración disponible."),
+        GameCatalogItem("nds-demo-classic", "Biblioteca Nintendo DS", Platform.NDS, "es", "demo-ds-01", true, 1, "Juego de demostración disponible.")
     )
 }
 
@@ -35,12 +37,13 @@ class RemoteCatalogApi(private val sessionApi: SessionApi) : CatalogApi {
         GameCatalogItem(
             gameId = game.gameId,
             title = game.title,
-            platform = if (game.platform == "ds") Platform.DS else Platform.GBA,
+            platform = if (game.platform == "nds") Platform.NDS else Platform.GBA,
             language = game.language,
             emulationServer = game.emulationServer,
-            streamingAvailable = game.streamingAvailable,
+            available = game.available,
             players = game.players,
-            description = game.description
+            description = game.description,
+            coverUrl = game.coverUrl
         )
     }
 }
