@@ -39,7 +39,11 @@ export class WindowsEmulatorRunner {
     }
     record.started = true;
 
-    this._startCapture(session.id, session.platform);
+    try {
+      this._startCapture(session.id, session.platform);
+    } catch (error) {
+      record.captureError = error.message;
+    }
     return { input: "windows-keyboard", media: "mjpeg-stream" };
   }
 
