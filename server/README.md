@@ -17,7 +17,7 @@ Cada directorio solo versiona su archivo `.gitignore`; no debe añadirse ningún
 
 La APK consulta `GET /v1/catalog` y recibe únicamente los metadatos públicos de la biblioteca. El servidor no devuelve nombres de archivo ni rutas privadas y sólo muestra entradas cuyo archivo exista en `games-private/`.
 
-En el host Linux, copia `catalog.private.example.json` como `games-private/catalog.json`, ajusta los identificadores y coloca los archivos autorizados en subcarpetas privadas, por ejemplo `games-private/gba/` y `games-private/ds/`. `catalog.json` queda ignorado por Git junto con los archivos de juego.
+En el host Linux, copia `catalog.private.example.json` como `games-private/catalog.json`, ajusta los identificadores y coloca los archivos autorizados en subcarpetas privadas, por ejemplo `games-private/gba/` y `games-private/nds/`. `catalog.json` queda ignorado por Git junto con los archivos de juego.
 
 Antes de habilitar una biblioteca para el proyector, el host debe contener los archivos privados autorizados y sus dependencias de emulación. La API confirma `available: true` sólo cuando el archivo privado existe; WebRTC y la reproducción siguen pendientes.
 

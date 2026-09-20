@@ -12,7 +12,7 @@
   "ds-personal-example": {
     "title": "Juego DS autorizado",
     "platform": "ds",
-    "file": "ds/archivo-autorizado.nds",
+    "file": "nds/archivo-autorizado.nds",
     "language": "es",
     "emulationServer": "retro-ds-01",
     "coverUrl": null,
