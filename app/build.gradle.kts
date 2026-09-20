@@ -18,8 +18,8 @@ android {
         applicationId = "com.retrosala.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "0.3.2"
         buildConfigField("String", "RETROSALA_SERVER_MODE", "\"${configuredString("RETROSALA_SERVER_MODE", "demo")}\"")
         buildConfigField("String", "RETROSALA_API_URL", "\"${configuredString("RETROSALA_API_URL", "")}\"")
         buildConfigField("String", "RETROSALA_SIGNALING_URL", "\"${configuredString("RETROSALA_SIGNALING_URL", "")}\"")
