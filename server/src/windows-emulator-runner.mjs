@@ -2,7 +2,6 @@ import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import net from "node:net";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1")), "..");
 
@@ -13,7 +12,6 @@ export class WindowsEmulatorRunner {
     this.ffmpeg = ffmpegExecutable || "ffmpeg";
     this.processes = new Map();
     this._mjpegClients = new Set();
-    this._inputSocket = null;
   }
 
   async start(session) {
@@ -22,8 +20,10 @@ export class WindowsEmulatorRunner {
     await executableFile(executable, "El ejecutable configurado no existe o no se puede leer");
     await mkdir(session.saveDirectory, { recursive: true });
 
-    const luaScript = path.join(root, "emulation", "gba", "control.lua");
-    const args = session.platform === "gba" ? ["--script", luaScript, session.gamePath] : [session.gamePath];
+    // The official Windows mGBA 0.10.5 build exposes Lua through its UI, not
+    // through a supported --script command-line flag. Start the private game
+    // directly and relay controls as Windows keyboard messages instead.
+    const args = [session.gamePath];
 
     const child = spawn(executable, args, { windowsHide: false, stdio: ["ignore", "pipe", "pipe"] });
     const record = { child, output: "", started: false, platform: session.platform };
@@ -40,9 +40,7 @@ export class WindowsEmulatorRunner {
     record.started = true;
 
     this._startCapture(session.id, session.platform);
-    this._connectInput();
-
-    return { input: "lua-tcp:8788", media: "mjpeg-stream" };
+    return { input: "windows-keyboard", media: "mjpeg-stream" };
   }
 
   _startCapture(sessionId, platform) {
@@ -82,31 +80,15 @@ export class WindowsEmulatorRunner {
     res.on("close", () => this._mjpegClients.delete(res));
   }
 
-  _connectInput() {
-    if (this._inputSocket && !this._inputSocket.destroyed) return;
-    const tryConnect = () => {
-      const sock = net.createConnection(8788, "127.0.0.1", () => {
-        this._inputSocket = sock;
-      });
-      sock.on("error", () => { setTimeout(tryConnect, 500); });
-      sock.on("close", () => { this._inputSocket = null; });
-    };
-    tryConnect();
-  }
-
-  controlsSupported() { return this._inputSocket != null && !this._inputSocket.destroyed; }
+  controlsSupported() { return true; }
 
   async control(sessionId, event) {
-    if (!this._inputSocket || this._inputSocket.destroyed) {
-      this._connectInput();
-      return { delivered: false, reason: "Reconectando al puente de controles" };
-    }
+    const record = this.processes.get(sessionId);
+    if (!record?.started || record.platform !== "gba") return { delivered: false, reason: "El puente de controles GBA no está disponible" };
+    const key = event.x != null && event.y != null ? joystickKey(event.x, event.y) : keyFor(event.control);
+    if (!key) return { delivered: false, reason: "Control no compatible con mGBA" };
     try {
-      if (event.x != null && event.y != null) {
-        this._inputSocket.write(`joystick:${event.x}:${event.y}\n`);
-      } else {
-        this._inputSocket.write(`${event.control}:${event.pressed ? "down" : "up"}\n`);
-      }
+      await postKey("mGBA", key, event.pressed);
       return { delivered: true };
     } catch {
       return { delivered: false, reason: "Error enviando control" };
@@ -127,7 +109,6 @@ export class WindowsEmulatorRunner {
     this._stopCapture(sessionId);
     this.processes.delete(sessionId);
     if (!record.child.killed) record.child.kill();
-    if (this._inputSocket) { this._inputSocket.destroy(); this._inputSocket = null; }
   }
 }
 
@@ -137,3 +118,14 @@ async function executableFile(file, message) {
   try { await access(file, constants.R_OK); } catch { throw new EmulatorLaunchError(message); }
 }
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+const keyboard = { A: "Z", B: "X", L: "A", R: "S", Start: "ENTER", Select: "BACK", Up: "UP", Down: "DOWN", Left: "LEFT", Right: "RIGHT" };
+function keyFor(control) { return keyboard[control]; }
+function joystickKey(x, y) { return Math.abs(x) > Math.abs(y) ? (x > .3 ? "RIGHT" : x < -.3 ? "LEFT" : null) : (y > .3 ? "DOWN" : y < -.3 ? "UP" : null); }
+function postKey(title, key, down) {
+  const script = path.join(root, "scripts", "send-mgba-key.ps1");
+  return new Promise((resolve, reject) => {
+    const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-WindowTitle", title, "-Key", key, "-Down", String(down)], { windowsHide: true });
+    child.once("exit", code => code === 0 ? resolve() : reject(new Error("No se pudo entregar la tecla a mGBA")));
+    child.once("error", reject);
+  });
+}

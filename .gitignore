@@ -27,4 +27,5 @@ saves/
 gbs/
 DS/
 app-debug.apk
+server/streaming/output/
 melonDS-*.zip
