@@ -62,20 +62,23 @@ import com.retrosala.app.emulation.ControllerInput
 import com.retrosala.app.emulation.DemoRemoteEmulationSession
 import com.retrosala.app.emulation.HttpSessionApi
 import com.retrosala.app.emulation.RemoteSessionStatus
+import com.retrosala.app.streaming.MjpegStreamReader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-private val Ink = Color(0xFF090B18)
-private val Panel = Color(0xFF141A31)
-private val Violet = Color(0xFF8D72FF)
+private val Ink = Color(0xFF0A0A14)
+private val Panel = Color(0xFF161B34)
+private val Violet = Color(0xFF8B5CF6)
+private val Cyan = Color(0xFF22D3EE)
+private val Magenta = Color(0xFFEC4899)
 private val Lime = Color(0xFFB9FF3B)
-private val Soft = Color(0xFFC6C9D8)
+private val Soft = Color(0xFFA1A5BE)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { GranZRetroScreen() } }
+        setContent { MaterialTheme { AmayomiRetroScreen() } }
     }
 }
 
@@ -93,6 +96,12 @@ class RetroSalaViewModel : ViewModel() {
     private val _lastControl = MutableStateFlow("Esperando mando móvil")
     val lastControl: StateFlow<String> = _lastControl
 
+    private var mjpegReader: MjpegStreamReader? = null
+    private val _streamFrame = MutableStateFlow<Bitmap?>(null)
+    val streamFrame: StateFlow<Bitmap?> = _streamFrame
+    private val _isStreaming = MutableStateFlow(false)
+    val isStreaming: StateFlow<Boolean> = _isStreaming
+
     init {
         viewModelScope.launch { _games.value = catalog.listGames().filter { it.available } }
         viewModelScope.launch { controller.start() }
@@ -106,52 +115,152 @@ class RetroSalaViewModel : ViewModel() {
         }
     }
 
-    fun start(game: GameCatalogItem) = viewModelScope.launch { session.start(game) }
+    fun start(game: GameCatalogItem) = viewModelScope.launch {
+        session.start(game)
+        if (serverConfiguration.streamingUrl.isNotBlank()) {
+            startStream(serverConfiguration.streamingUrl)
+        } else if (serverConfiguration.apiUrl.isNotBlank()) {
+            startStream("${serverConfiguration.apiUrl}/v1/stream")
+        }
+    }
+
+    private fun startStream(url: String) {
+        mjpegReader?.stop()
+        val reader = MjpegStreamReader(url)
+        mjpegReader = reader
+        _isStreaming.value = true
+        viewModelScope.launch {
+            reader.frame.collect { frame -> frame?.let { _streamFrame.value = it } }
+        }
+        viewModelScope.launch { reader.start() }
+    }
+
     fun pause() = viewModelScope.launch { session.pause() }
-    fun close() = viewModelScope.launch { session.close() }
+    fun close() = viewModelScope.launch {
+        session.close()
+        mjpegReader?.stop()
+        mjpegReader = null
+        _isStreaming.value = false
+        _streamFrame.value = null
+    }
 }
 
 @Composable
-private fun GranZRetroScreen(vm: RetroSalaViewModel = viewModel()) {
+private fun AmayomiRetroScreen(vm: RetroSalaViewModel = viewModel()) {
     val games by vm.games.collectAsStateWithLifecycle()
     val status by vm.status.collectAsStateWithLifecycle()
     val url by vm.controllerUrl.collectAsStateWithLifecycle()
     val controllers by vm.connectedControllers.collectAsStateWithLifecycle()
     val lastControl by vm.lastControl.collectAsStateWithLifecycle()
+    val streaming by vm.isStreaming.collectAsStateWithLifecycle()
+    val frame by vm.streamFrame.collectAsStateWithLifecycle()
     var platform by remember { mutableStateOf<Platform?>(null) }
     var selectedGame by remember { mutableStateOf<GameCatalogItem?>(null) }
     val library = platform?.let { gamesForPlatform(games, it) }.orEmpty()
 
+    if (streaming && frame != null) {
+        StreamingScreen(frame!!, url, controllers.size, lastControl, onClose = vm::close)
+    } else {
+        CatalogScreen(
+            games, status, url, controllers, lastControl,
+            platform, selectedGame, library,
+            onSelectPlatform = { platform = it },
+            onBack = { platform = null; selectedGame = null },
+            onSelectGame = { selectedGame = it },
+            onStart = { selectedGame?.let(vm::start) },
+            onPause = vm::pause,
+            onClose = vm::close
+        )
+    }
+}
+
+@Composable
+private fun StreamingScreen(
+    frame: Bitmap, controllerUrl: String, controllerCount: Int, lastControl: String, onClose: () -> Unit
+) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        Image(
+            bitmap = frame.asImageBitmap(),
+            contentDescription = "Pantalla del juego",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+        )
+        Row(
+            Modifier.align(Alignment.TopStart).padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xCC161B34)), shape = RoundedCornerShape(12.dp)) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("AMAYOMI RETRO", color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("·", color = Soft, fontSize = 13.sp)
+                    Text(lastControl, color = Soft, fontSize = 12.sp)
+                }
+            }
+        }
+        Button(
+            onClick = onClose,
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xCC4C1D3B))
+        ) { Text("Salir", color = Color.White, fontWeight = FontWeight.Bold) }
+        Card(
+            Modifier.align(Alignment.BottomEnd).padding(16.dp).width(180.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xCC10162B)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                val qr = remember(controllerUrl) { createQr(controllerUrl) }
+                Image(qr.asImageBitmap(), "QR mando", Modifier.width(100.dp).height(100.dp).background(Color.White))
+                Spacer(Modifier.height(6.dp))
+                Text("$controllerCount jugador(es)", color = Cyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogScreen(
+    games: List<GameCatalogItem>, status: RemoteSessionStatus, url: String,
+    controllers: List<com.retrosala.app.controller.ConnectedController>, lastControl: String,
+    platform: Platform?, selectedGame: GameCatalogItem?, library: List<GameCatalogItem>,
+    onSelectPlatform: (Platform) -> Unit, onBack: () -> Unit, onSelectGame: (GameCatalogItem) -> Unit,
+    onStart: () -> Unit, onPause: () -> Unit, onClose: () -> Unit
+) {
     Row(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF17133A), Ink))).padding(30.dp),
+        Modifier.fillMaxSize().background(
+            Brush.linearGradient(
+                listOf(Color(0xFF1A0A2E), Color(0xFF0D1117), Color(0xFF0A1628)),
+                start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                end = androidx.compose.ui.geometry.Offset(1000f, 800f)
+            )
+        ).padding(30.dp),
         horizontalArrangement = Arrangement.spacedBy(26.dp)
     ) {
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Header(platform, onBack = { platform = null; selectedGame = null })
+            Header(platform, onBack)
             if (platform == null) {
                 Text("Elige tu plataforma", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                PlatformRow(onSelect = { platform = it }, onUpcoming = {})
+                PlatformRow(onSelect = onSelectPlatform, onUpcoming = {})
                 PremiumStatus(status, lastControl)
             } else {
-                Text(platform!!.label, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text(platform.label, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                 Text("Biblioteca disponible", color = Soft, fontSize = 17.sp)
-                if (library.isEmpty()) EmptyLibrary(platform!!)
+                if (library.isEmpty()) EmptyLibrary(platform)
                 else LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(library) { game -> GameCard(game, selectedGame?.gameId == game.gameId) { selectedGame = game } }
+                    items(library) { game -> GameCard(game, selectedGame?.gameId == game.gameId) { onSelectGame(game) } }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
                         enabled = selectedGame != null,
-                        onClick = { selectedGame?.let(vm::start) },
+                        onClick = onStart,
                         colors = ButtonDefaults.buttonColors(containerColor = Lime, contentColor = Ink)
                     ) { Text("Iniciar sesión", fontWeight = FontWeight.Bold) }
-                    Button(onClick = vm::pause, colors = ButtonDefaults.buttonColors(containerColor = Panel)) { Text("Pausar") }
-                    Button(onClick = vm::close, colors = ButtonDefaults.buttonColors(containerColor = Panel)) { Text("Salir") }
+                    Button(onClick = onPause, colors = ButtonDefaults.buttonColors(containerColor = Panel)) { Text("Pausar") }
+                    Button(onClick = onClose, colors = ButtonDefaults.buttonColors(containerColor = Panel)) { Text("Salir") }
                 }
                 PremiumStatus(status, lastControl)
             }
             Spacer(Modifier.weight(1f))
-            AboutGranZRetro()
+            AboutAmayomiRetro()
         }
         PairingPanel(url, controllers.size)
     }
@@ -160,7 +269,7 @@ private fun GranZRetroScreen(vm: RetroSalaViewModel = viewModel()) {
 @Composable
 private fun Header(platform: Platform?, onBack: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-        Image(painterResource(R.drawable.gran_z_retro_logo), "Logo Gran Z Retro", Modifier.width(260.dp).height(70.dp))
+        Image(painterResource(R.drawable.amayomi_retro_logo), "Logo Amayomi Retro", Modifier.width(280.dp).height(90.dp))
         if (platform != null) Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Panel)) { Text("Plataformas") }
     }
 }
@@ -169,9 +278,9 @@ private fun Header(platform: Platform?, onBack: () -> Unit) {
 private fun PlatformRow(onSelect: (Platform) -> Unit, onUpcoming: () -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         PlatformCard("Game Boy Advance", "GBA", Violet, true) { onSelect(Platform.GBA) }
-        PlatformCard("Nintendo DS", "NDS", Color(0xFF00A8C7), true) { onSelect(Platform.NDS) }
-        PlatformCard("PlayStation 1", "PRÓXIMAMENTE", Color(0xFF7A5AAE), false, onUpcoming)
-        PlatformCard("PlayStation 2", "PRÓXIMAMENTE", Color(0xFF8D4F78), false, onUpcoming)
+        PlatformCard("Nintendo DS", "NDS", Cyan, true) { onSelect(Platform.NDS) }
+        PlatformCard("PlayStation 1", "PRÓXIMAMENTE", Magenta, false, onUpcoming)
+        PlatformCard("PlayStation 2", "PRÓXIMAMENTE", Color(0xFF6366F1), false, onUpcoming)
     }
 }
 
@@ -182,7 +291,7 @@ private fun PlatformCard(title: String, subtitle: String, accent: Color, enabled
         colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(24.dp)
     ) {
         Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text("◆", color = accent, fontSize = 38.sp)
+            Text("▶", color = accent, fontSize = 34.sp)
             Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
             Text(subtitle, color = if (enabled) Lime else Soft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
@@ -196,7 +305,7 @@ private fun GameCard(game: GameCatalogItem, selected: Boolean, onClick: () -> Un
         colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF2A2455) else Panel)
     ) {
         Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(game.platform.label, color = Lime, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(game.platform.label, color = Cyan, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(game.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 2)
             Text("${game.players} jugador(es) · ${game.language}", color = Soft, fontSize = 14.sp)
             if (selected) Text("Seleccionado", color = Color(0xFFD9CCFF), fontWeight = FontWeight.Bold)
@@ -217,7 +326,7 @@ private fun EmptyLibrary(platform: Platform) {
 private fun PremiumStatus(status: RemoteSessionStatus, lastControl: String) {
     Card(Modifier.fillMaxWidth().height(120.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF11172A)), shape = RoundedCornerShape(20.dp)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Sala remota", color = Lime, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Sala remota", color = Cyan, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Text(status.label(), color = Color.White, fontSize = 19.sp)
             Text(lastControl, color = Soft, fontSize = 14.sp)
         }
@@ -234,15 +343,15 @@ private fun PairingPanel(url: String, controllerCount: Int) {
             Spacer(Modifier.height(18.dp))
             Image(qr.asImageBitmap(), "Código QR para mando móvil", Modifier.width(220.dp).height(220.dp).background(Color.White))
             Spacer(Modifier.height(16.dp))
-            Text("$controllerCount jugador(es) conectado(s)", color = Lime, fontWeight = FontWeight.Bold)
+            Text("$controllerCount jugador(es) conectado(s)", color = Cyan, fontWeight = FontWeight.Bold)
             Text(url, color = Soft, fontSize = 11.sp, textAlign = TextAlign.Center)
         }
     }
 }
 
 @Composable
-private fun AboutGranZRetro() {
-    Text("GRAN Z RETRO · Creado y fundado por José Amaya", color = Soft, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+private fun AboutAmayomiRetro() {
+    Text("AMAYOMI RETRO · Creado y fundado por José Amaya", color = Soft, fontSize = 14.sp, fontWeight = FontWeight.Bold)
 }
 
 private fun createQr(value: String): Bitmap {

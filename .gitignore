@@ -20,3 +20,11 @@ saves/
 *.bin
 *.cue
 *.z64
+*.gbc
+*.cia
+*.sav
+*.zip
+gbs/
+DS/
+app-debug.apk
+melonDS-*.zip
