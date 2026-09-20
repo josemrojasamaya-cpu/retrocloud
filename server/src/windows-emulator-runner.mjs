@@ -92,7 +92,7 @@ export class WindowsEmulatorRunner {
     const key = event.x != null && event.y != null ? joystickKey(event.x, event.y) : keyFor(event.control);
     if (!key) return { delivered: false, reason: "Control no compatible con mGBA" };
     try {
-      await postKey("mGBA", key, event.pressed);
+      await postKey(record.child.pid, key, event.pressed);
       return { delivered: true };
     } catch {
       return { delivered: false, reason: "Error enviando control" };
@@ -125,10 +125,10 @@ function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 const keyboard = { A: "Z", B: "X", L: "A", R: "S", Start: "ENTER", Select: "BACK", Up: "UP", Down: "DOWN", Left: "LEFT", Right: "RIGHT" };
 function keyFor(control) { return keyboard[control]; }
 function joystickKey(x, y) { return Math.abs(x) > Math.abs(y) ? (x > .3 ? "RIGHT" : x < -.3 ? "LEFT" : null) : (y > .3 ? "DOWN" : y < -.3 ? "UP" : null); }
-function postKey(title, key, down) {
+function postKey(processId, key, down) {
   const script = path.join(root, "scripts", "send-mgba-key.ps1");
   return new Promise((resolve, reject) => {
-    const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-WindowTitle", title, "-Key", key, "-Down", String(down)], { windowsHide: true });
+    const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", String(processId), "-Key", key, "-Down", String(down)], { windowsHide: true });
     child.once("exit", code => code === 0 ? resolve() : reject(new Error("No se pudo entregar la tecla a mGBA")));
     child.once("error", reject);
   });
