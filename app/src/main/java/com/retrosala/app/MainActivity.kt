@@ -103,8 +103,15 @@ class RetroSalaViewModel : ViewModel() {
     val isStreaming: StateFlow<Boolean> = _isStreaming
 
     init {
-        viewModelScope.launch { _games.value = catalog.listGames().filter { it.available } }
-        viewModelScope.launch { controller.start() }
+        viewModelScope.launch {
+            runCatching { catalog.listGames().filter { it.available } }
+                .onSuccess { _games.value = it }
+                .onFailure { _lastControl.value = "Servidor no disponible: abre la aplicación y revisa la red" }
+        }
+        viewModelScope.launch {
+            runCatching { controller.start() }
+                .onFailure { _lastControl.value = "Mando móvil no disponible todavía" }
+        }
         viewModelScope.launch {
             controller.inputs.collect { input ->
                 _lastControl.value = if (input.normalizedX != null) "Jugador ${input.player}: ${input.control}" else "Jugador ${input.player}: ${input.control}"
