@@ -40,7 +40,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.retrosala.app.catalog.DemoCatalogApi
 import com.retrosala.app.catalog.GameCatalogItem
-import com.retrosala.app.controller.DemoMobileControllerGateway
+import com.retrosala.app.controller.LocalWebSocketControllerGateway
 import com.retrosala.app.emulation.ControllerInput
 import com.retrosala.app.emulation.DemoRemoteEmulationSession
 import com.retrosala.app.emulation.RemoteSessionStatus
@@ -59,15 +59,23 @@ class MainActivity : ComponentActivity() {
 class RetroSalaViewModel : ViewModel() {
     private val catalog = DemoCatalogApi()
     private val session = DemoRemoteEmulationSession()
-    private val controller = DemoMobileControllerGateway()
+    private val controller = LocalWebSocketControllerGateway()
     private val _games = MutableStateFlow<List<GameCatalogItem>>(emptyList())
     val games: StateFlow<List<GameCatalogItem>> = _games
     val status = session.status
     val controllerUrl = controller.controllerUrl
+    val connectedControllers = controller.connectedControllers
     private val _lastControl = MutableStateFlow("Ningún control recibido")
     val lastControl: StateFlow<String> = _lastControl
 
-    init { viewModelScope.launch { _games.value = catalog.listGames() } }
+    init {
+        viewModelScope.launch { _games.value = catalog.listGames() }
+        viewModelScope.launch { controller.start() }
+        viewModelScope.launch { controller.inputs.collect { input ->
+            _lastControl.value = "Jugador ${input.player}: ${input.control}"
+            session.sendInput(input)
+        } }
+    }
 
     fun start(game: GameCatalogItem) = viewModelScope.launch { session.start(game) }
     fun press(control: String) = viewModelScope.launch {
@@ -84,6 +92,7 @@ private fun RetroSalaScreen(vm: RetroSalaViewModel = viewModel()) {
     val games by vm.games.collectAsStateWithLifecycle()
     val status by vm.status.collectAsStateWithLifecycle()
     val url by vm.controllerUrl.collectAsStateWithLifecycle()
+    val controllers by vm.connectedControllers.collectAsStateWithLifecycle()
     val lastControl by vm.lastControl.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<GameCatalogItem?>(null) }
     Row(Modifier.fillMaxSize().background(Color(0xFF10111A)).padding(32.dp)) {
@@ -106,7 +115,7 @@ private fun RetroSalaScreen(vm: RetroSalaViewModel = viewModel()) {
             DemoDisplay(status, lastControl)
         }
         Spacer(Modifier.width(32.dp))
-        PairingPanel(url)
+        PairingPanel(url, controllers.size)
     }
 }
 
@@ -134,14 +143,14 @@ private fun DemoDisplay(status: RemoteSessionStatus, lastControl: String) {
 }
 
 @Composable
-private fun PairingPanel(url: String) {
+private fun PairingPanel(url: String, controllerCount: Int) {
     val qr = remember(url) { createQr(url) }
     Column(Modifier.width(260.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Conecta tu mando", color = Color.White, fontSize = 22.sp)
         Spacer(Modifier.height(14.dp))
         Image(qr.asImageBitmap(), "Código QR para mando", Modifier.width(220.dp).height(220.dp).background(Color.White))
         Spacer(Modifier.height(12.dp))
-        Text("Modo demostración", color = Color(0xFFA9F5C5))
+        Text("$controllerCount mando(s) conectado(s)", color = Color(0xFFA9F5C5))
         Text(url, color = Color(0xFFB9B8C5), fontSize = 12.sp)
     }
 }
