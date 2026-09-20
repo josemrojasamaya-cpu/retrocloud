@@ -13,6 +13,14 @@ Esta carpeta prepara el lado Linux del sistema. Ejecuta juegos autorizados únic
 
 Cada directorio solo versiona su archivo `.gitignore`; no debe añadirse ningún contenido privado al repositorio.
 
+## Biblioteca privada
+
+La APK consulta `GET /v1/catalog` y recibe únicamente los metadatos públicos de la biblioteca. El servidor no devuelve nombres de archivo ni rutas privadas y sólo muestra entradas cuyo archivo exista en `games-private/`.
+
+En el host Linux, copia `catalog.private.example.json` como `games-private/catalog.json`, ajusta los identificadores y coloca los archivos autorizados en subcarpetas privadas, por ejemplo `games-private/gba/` y `games-private/ds/`. `catalog.json` queda ignorado por Git junto con los archivos de juego.
+
+Antes de habilitar una biblioteca para el proyector, el host debe contener los archivos privados autorizados y sus dependencias de emulación. La bandera `streamingAvailable` permanece en `false` hasta que se implemente la captura y WebRTC.
+
 ## Emuladores preparados
 
 | Plataforma | Emulador y versión fijada | Licencia | Fuente oficial |
@@ -37,6 +45,12 @@ curl http://localhost:8080/health
 ```
 
 La API acepta `POST /v1/sessions` con `{ "gameId": "..." }`. Lee exclusivamente `games-private/catalog.json`, verifica que el archivo privado exista y rechaza el inicio si falta. Los endpoints `controls`, `pause`, `save` y `close` mantienen el ciclo de la sesión, sin exponer rutas privadas al cliente.
+
+La biblioteca disponible para Android se obtiene con:
+
+```sh
+curl http://localhost:8080/v1/catalog
+```
 
 Define `SESSION_API_TOKEN` en un archivo `server/.env` privado para exigir `Authorization: Bearer TOKEN` en toda ruta `/v1/`. La APK envía ese token sólo cuando se configura `RETROSALA_SESSION_TOKEN` durante la compilación. No uses esta opción con tráfico público hasta activar TLS.
 
