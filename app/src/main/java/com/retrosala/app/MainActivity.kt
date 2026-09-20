@@ -63,6 +63,9 @@ import com.retrosala.app.emulation.DemoRemoteEmulationSession
 import com.retrosala.app.emulation.HttpSessionApi
 import com.retrosala.app.emulation.RemoteSessionStatus
 import com.retrosala.app.streaming.MjpegStreamReader
+import com.retrosala.app.streaming.PcmAudioStream
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -97,6 +100,10 @@ class RetroSalaViewModel : ViewModel() {
     val lastControl: StateFlow<String> = _lastControl
 
     private var mjpegReader: MjpegStreamReader? = null
+    private var audioReader: PcmAudioStream? = null
+    private val mediaJobs = mutableListOf<Job>()
+    val videoMessage = MutableStateFlow("")
+    val audioMessage = MutableStateFlow("")
     private val _streamFrame = MutableStateFlow<Bitmap?>(null)
     val streamFrame: StateFlow<Bitmap?> = _streamFrame
     private val _isStreaming = MutableStateFlow(false)
@@ -115,41 +122,69 @@ class RetroSalaViewModel : ViewModel() {
         viewModelScope.launch {
             controller.inputs.collect { input ->
                 _lastControl.value = if (input.normalizedX != null) "Jugador ${input.player}: ${input.control}" else "Jugador ${input.player}: ${input.control}"
-                if (input.pressed && input.control == "Pausa") session.pause()
-                else if (input.pressed && input.control == "Salir") session.close()
-                else session.sendInput(input)
+                try {
+                    if (input.pressed && input.control == "Pausa") pause()
+                    else if (input.pressed && input.control == "Salir") close()
+                    else session.sendInput(input)
+                } catch (error: CancellationException) { throw error
+                } catch (error: Exception) { _lastControl.value = "No se pudo enviar el control" }
             }
         }
     }
 
     fun start(game: GameCatalogItem) = viewModelScope.launch {
+        if (_isStreaming.value) return@launch
+        _isStreaming.value = true
+        videoMessage.value = "Abriendo el juego en la PC…"
+        audioMessage.value = ""
+        try {
         session.start(game)
         if (serverConfiguration.streamingUrl.isNotBlank()) {
             startStream(serverConfiguration.streamingUrl)
         } else if (serverConfiguration.apiUrl.isNotBlank()) {
             startStream("${serverConfiguration.apiUrl}/v1/stream")
         }
+        } catch (error: CancellationException) { throw error
+        } catch (error: Exception) {
+            _lastControl.value = error.message ?: "No se pudo abrir el juego"
+            stopMedia()
+        }
     }
 
     private fun startStream(url: String) {
-        mjpegReader?.stop()
-        val reader = MjpegStreamReader(url)
+        stopMedia()
+        val reader = MjpegStreamReader(url, serverConfiguration.sessionToken)
         mjpegReader = reader
         _isStreaming.value = true
-        viewModelScope.launch {
-            reader.frame.collect { frame -> frame?.let { _streamFrame.value = it } }
+        mediaJobs += viewModelScope.launch {
+            reader.frame.collect { frame -> _streamFrame.value = frame }
         }
-        viewModelScope.launch { reader.start() }
+        mediaJobs += viewModelScope.launch { reader.message.collect { videoMessage.value = it } }
+        mediaJobs += viewModelScope.launch { reader.start() }
+        val audio = PcmAudioStream("${serverConfiguration.apiUrl}/v1/audio", serverConfiguration.sessionToken)
+        audioReader = audio
+        mediaJobs += viewModelScope.launch { audio.message.collect { audioMessage.value = it } }
+        mediaJobs += viewModelScope.launch { audio.start() }
     }
 
-    fun pause() = viewModelScope.launch { session.pause() }
+    fun pause() = viewModelScope.launch {
+        try { session.pause() } catch (error: CancellationException) { throw error
+        } catch (error: Exception) { _lastControl.value = "No se pudo pausar: ${error.message}" }
+    }
     fun close() = viewModelScope.launch {
-        session.close()
+        stopMedia()
+        try { session.close() } catch (error: CancellationException) { throw error
+        } catch (error: Exception) { _lastControl.value = "Conexión cerrada; revisa la PC" }
+    }
+    private fun stopMedia() {
         mjpegReader?.stop()
         mjpegReader = null
+        audioReader?.stop(); audioReader = null
+        mediaJobs.forEach { it.cancel() }; mediaJobs.clear()
         _isStreaming.value = false
         _streamFrame.value = null
     }
+    override fun onCleared() { stopMedia(); super.onCleared() }
 }
 
 @Composable
@@ -161,12 +196,14 @@ private fun AmayomiRetroScreen(vm: RetroSalaViewModel = viewModel()) {
     val lastControl by vm.lastControl.collectAsStateWithLifecycle()
     val streaming by vm.isStreaming.collectAsStateWithLifecycle()
     val frame by vm.streamFrame.collectAsStateWithLifecycle()
+    val videoMessage by vm.videoMessage.collectAsStateWithLifecycle()
+    val audioMessage by vm.audioMessage.collectAsStateWithLifecycle()
     var platform by remember { mutableStateOf<Platform?>(null) }
     var selectedGame by remember { mutableStateOf<GameCatalogItem?>(null) }
     val library = platform?.let { gamesForPlatform(games, it) }.orEmpty()
 
-    if (streaming && frame != null) {
-        StreamingScreen(frame!!, url, controllers.size, lastControl, onClose = vm::close)
+    if (streaming) {
+        StreamingScreen(frame, url, controllers.size, "$videoMessage · $audioMessage", onClose = vm::close)
     } else {
         CatalogScreen(
             games, status, url, controllers, lastControl,
@@ -183,15 +220,16 @@ private fun AmayomiRetroScreen(vm: RetroSalaViewModel = viewModel()) {
 
 @Composable
 private fun StreamingScreen(
-    frame: Bitmap, controllerUrl: String, controllerCount: Int, lastControl: String, onClose: () -> Unit
+    frame: Bitmap?, controllerUrl: String, controllerCount: Int, lastControl: String, onClose: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Image(
+        if (frame != null) Image(
             bitmap = frame.asImageBitmap(),
             contentDescription = "Pantalla del juego",
             modifier = Modifier.fillMaxSize(),
             contentScale = androidx.compose.ui.layout.ContentScale.Fit
         )
+        else Text(lastControl, color = Color.White, modifier = Modifier.align(Alignment.Center).padding(32.dp), fontSize = 22.sp)
         Row(
             Modifier.align(Alignment.TopStart).padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)

@@ -26,13 +26,19 @@ export class SessionManager {
     const id = randomUUID();
     const session = {
       id, gameId, platform: game.platform, status: this.runner ? "starting" : "ready", createdAt: this.now(),
-      gamePath, saveDirectory: path.join(this.savesDirectory, id),
+      gamePath, saveDirectory: path.join(this.savesDirectory, gameId),
       capture: capturePlan(game.platform), controls: [], pauseRequested: false, saveRequested: false
     };
     this.sessions.set(id, session);
     if (this.runner) {
       try {
         session.runner = await this.runner.start(session);
+        if (session.runner?.media === "mjpeg-pcm") session.capture = {
+          status: "local-streaming", platform: session.platform,
+          video: { source: "Windows emulator window", encoder: "MJPEG" },
+          audio: { source: "Windows default output loopback", encoder: "PCM s16le" },
+          signaling: "HTTP local; WebRTC no implementado"
+        };
         session.status = "live";
       } catch (error) {
         this.sessions.delete(id);
@@ -79,21 +85,30 @@ export class SessionManager {
       event.y = input.y;
     }
     session.controls.push(event);
+    if (session.controls.length > 100) session.controls.shift();
     if (this.runner) {
       const delivery = await this.runner.control(session.id, event);
+      if (!delivery.delivered) throw new SessionError(503, delivery.reason ?? "El emulador no recibió el control");
       return { accepted: true, emulatorInput: delivery.delivered === true };
     }
     return { accepted: true };
   }
   async pause(id) {
     const s = this.#session(id);
-    if (this.runner) await this.runner.pause(s.id);
+    if (this.runner) {
+      const result = await this.runner.pause(s.id);
+      if (result?.applied === false) throw new SessionError(501, result.reason ?? "Pausa no implementada");
+    }
     s.status = s.status === "paused" ? (this.runner ? "live" : "ready") : "paused";
     return publicSession(s);
   }
   async save(id) {
-    const s = this.#session(id); s.saveRequested = true;
-    if (this.runner) await this.runner.save(s.id);
+    const s = this.#session(id);
+    if (this.runner) {
+      const result = await this.runner.save(s.id);
+      if (result?.applied === false) throw new SessionError(501, result.reason ?? "Guardado remoto no implementado");
+    }
+    s.saveRequested = true;
     return { accepted: true };
   }
   async close(id) {

@@ -1,0 +1,2 @@
+# WASAPI output capture; source: https://github.com/s0d3s/PyAudioWPatch (MIT)
+PyAudioWPatch==0.2.12.8

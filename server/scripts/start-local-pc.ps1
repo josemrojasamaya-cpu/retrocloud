@@ -4,7 +4,8 @@ param(
   [string]$Port = "8080",
   [string]$MgbaExecutable = "C:\Program Files\mGBA\mGBA.exe",
   [string]$MelondsExecutable = "",
-  [string]$FfmpegExecutable = ""
+  [string]$FfmpegExecutable = "",
+  [string]$PythonExecutable = ""
 )
 
 # Auto-detect local IP if not provided
@@ -15,11 +16,19 @@ if (-not $BindAddress) {
 }
 
 # Auto-detect FFmpeg
+if (-not $PythonExecutable) {
+  $PythonExecutable = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+  if (-not $PythonExecutable) { $PythonExecutable = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe' }
+}
 if (-not $FfmpegExecutable) {
   $ffmpegPath = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
-  if ($ffmpegPath) { $FfmpegExecutable = $ffmpegPath }
-  else { Write-Host "ADVERTENCIA: FFmpeg no encontrado. El streaming de video no funcionara." -ForegroundColor Yellow }
+  if ($ffmpegPath -and $ffmpegPath.EndsWith('.exe')) { $FfmpegExecutable = $ffmpegPath }
+  elseif (Test-Path $PythonExecutable) { $FfmpegExecutable = (& $PythonExecutable -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())').Trim() }
 }
+if (-not (Test-Path $FfmpegExecutable) -or -not $FfmpegExecutable.EndsWith('.exe')) { throw 'FFMPEG_EXECUTABLE debe ser el .exe real, no un archivo .bat.' }
+if (-not (Test-Path $PythonExecutable)) { throw 'Configura PythonExecutable con python.exe.' }
+& $PythonExecutable -c 'import pyaudiowpatch'
+if ($LASTEXITCODE -ne 0) { throw 'Instala las dependencias de server/requirements-audio.txt con pip.' }
 
 $env:LOCAL_PC_BIND_ADDRESS = $BindAddress
 $env:PORT = $Port
@@ -27,6 +36,7 @@ $env:SESSION_API_TOKEN = $SessionToken
 $env:MGBA_EXECUTABLE = $MgbaExecutable
 $env:MELONDS_EXECUTABLE = $MelondsExecutable
 $env:FFMPEG_EXECUTABLE = $FfmpegExecutable
+$env:PYTHON_EXECUTABLE = $PythonExecutable
 
 Write-Host ""
 Write-Host "  ========================================" -ForegroundColor Cyan

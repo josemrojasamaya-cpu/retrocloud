@@ -31,7 +31,7 @@ http.createServer(async (request, response) => {
 
     const url = new URL(request.url, `http://${request.headers.host}`);
 
-    if (request.method === "GET" && url.pathname === "/health") return reply(response, 200, { ok: true, mode: "local-pc", streaming: "mjpeg" });
+    if (request.method === "GET" && url.pathname === "/health") return reply(response, 200, { ok: true, mode: "local-pc", streaming: "mjpeg-pcm" });
 
     if (request.method === "GET" && url.pathname === "/v1/stream") {
       runner.addStreamClient(response);
@@ -39,6 +39,8 @@ http.createServer(async (request, response) => {
     }
 
     if (url.pathname.startsWith("/v1/") && request.headers.authorization !== `Bearer ${apiToken}`) return reply(response, 401, { error: "token de sesión inválido" });
+    if (request.method === 'GET' && url.pathname === '/v1/media/status') return reply(response, 200, runner.mediaStatus());
+    if (request.method === 'GET' && url.pathname === '/v1/audio') { runner.addAudioClient(response); return; }
     if (request.method === "GET" && url.pathname === "/v1/catalog") return reply(response, 200, { games: await manager.listCatalog() });
     const body = await jsonBody(request);
     if (request.method === "POST" && url.pathname === "/v1/sessions") return reply(response, 201, await manager.create(body.gameId));

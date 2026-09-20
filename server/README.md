@@ -1,6 +1,6 @@
-# Servidor de emulación de Gran Z Retro
+# Servidor de emulación de Amayomi Retro
 
-Esta carpeta prepara el lado Linux del sistema. Ejecuta juegos autorizados únicamente en el servidor; la APK nunca recibe archivos de juego, BIOS ni partidas.
+Esta carpeta conserva la preparación Linux y el servidor Windows `local-pc`. Ejecuta juegos autorizados únicamente en el servidor; la APK nunca recibe archivos de juego, BIOS ni partidas. Para la prueba Windows 0.3.3, consulta [la guía de imagen, sonido y controles](../docs/PRUEBA_LOCAL_033.md).
 
 ## Directorios privados
 
@@ -98,4 +98,4 @@ El modo `local-pc` permite que la APK se conecte solamente a esta computadora de
 
 5. Compila la APK con `RETROSALA_SERVER_MODE=local_pc`, `RETROSALA_API_URL=http://192.168.1.50:8080` y el mismo `RETROSALA_SESSION_TOKEN`. La app sólo verá juegos cuyo archivo privado exista.
 
-El ejecutable de mGBA se inicia desde `MGBA_EXECUTABLE` y melonDS desde `MELONDS_EXECUTABLE`; ambos permanecen en Windows. El proceso se considera `live` sólo después de abrirse sin salir de inmediato. Las acciones de controles, pausa y guardado se registran con seguridad, pero todavía necesitan un puente de automatización oficialmente compatible con esos frontends para llegar al proceso real. La captura disponible es una prueba técnica con FFmpeg/GDI (`capture-windows-session.ps1`); WebRTC, señalización y reproducción de audio/video en Android siguen pendientes. Por ello aún no se debe afirmar que un juego se pueda jugar desde el proyector.
+En Windows 0.3.3, mGBA permanece en la PC; `live` requiere proceso abierto y el primer JPEG capturado. La APK recibe MJPEG por HTTP y PCM mediante AudioTrack. El puente persistente entrega botones y joystick al HWND de mGBA, con pulsación y liberación. La prueba real verificó imagen, audio no silencioso y movimiento del menú mediante la API; falta verificar la reproducción final en el proyector físico. Nintendo DS, pausa remota, estados guardados remotos y WebRTC siguen pendientes. Las operaciones no implementadas devuelven error en lugar de confirmar un éxito ficticio.

@@ -39,3 +39,21 @@ test("rejects a catalog entry whose private file is missing", async () => {
   await writeFile(catalogPath, JSON.stringify({ "missing-file": { platform: "ds", file: "not-present.nds" } }));
   await assert.rejects(() => manager.create("missing-file"), SessionError);
 });
+
+test("failed real controls and unsupported actions never report success", async () => {
+  const manager = await fixture();
+  manager.runner = {
+    start: async () => ({ media: 'mjpeg-pcm' }),
+    control: async () => ({ delivered: false }),
+    pause: async () => ({ applied: false }),
+    save: async () => ({ applied: false }),
+    close: async () => {}
+  };
+  const session = await manager.create('gba-demo');
+  assert.equal(session.capture.status, 'local-streaming');
+  await assert.rejects(manager.control(session.id, { control: 'A', pressed: true }), { status: 503 });
+  await assert.rejects(manager.pause(session.id), { status: 501 });
+  await assert.rejects(manager.save(session.id), { status: 501 });
+  assert.equal(manager.get(session.id).status, 'live');
+  assert.equal((await manager.close(session.id)).status, 'closed');
+});
