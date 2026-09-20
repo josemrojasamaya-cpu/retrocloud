@@ -7,6 +7,7 @@ services:
       - "8080:8080"
     environment:
       PORT: 8080
+      SESSION_API_TOKEN: ${SESSION_API_TOKEN:-}
       GAMES_DIRECTORY: /private/games
       SAVES_DIRECTORY: /private/saves
       SESSIONS_DIRECTORY: /private/sessions

@@ -10,11 +10,15 @@ const manager = new SessionManager({
   sessionsDirectory: process.env.SESSIONS_DIRECTORY ?? path.join(root, "sessions")
 });
 const port = Number(process.env.PORT ?? 8080);
+const apiToken = process.env.SESSION_API_TOKEN ?? "";
 
 http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
     if (request.method === "GET" && url.pathname === "/health") return reply(response, 200, { ok: true, webrtc: "pending" });
+    if (url.pathname.startsWith("/v1/") && apiToken && request.headers.authorization !== `Bearer ${apiToken}`) {
+      return reply(response, 401, { error: "token de sesión inválido" });
+    }
     const body = await jsonBody(request);
     if (request.method === "POST" && url.pathname === "/v1/sessions") return reply(response, 201, await manager.create(body.gameId));
     const match = url.pathname.match(/^\/v1\/sessions\/([\w-]+)\/(controls|pause|save|close)$/);

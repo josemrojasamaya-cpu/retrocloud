@@ -9,6 +9,7 @@ local.properties
 *.jks
 *.apk
 secrets.properties
+server/.env
 roms/
 bios/
 saves/

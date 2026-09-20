@@ -38,6 +38,8 @@ curl http://localhost:8080/health
 
 La API acepta `POST /v1/sessions` con `{ "gameId": "..." }`. Lee exclusivamente `games-private/catalog.json`, verifica que el archivo privado exista y rechaza el inicio si falta. Los endpoints `controls`, `pause`, `save` y `close` mantienen el ciclo de la sesión, sin exponer rutas privadas al cliente.
 
+Define `SESSION_API_TOKEN` en un archivo `server/.env` privado para exigir `Authorization: Bearer TOKEN` en toda ruta `/v1/`. La APK envía ese token sólo cuando se configura `RETROSALA_SESSION_TOKEN` durante la compilación. No uses esta opción con tráfico público hasta activar TLS.
+
 Ejemplos:
 
 ```sh
