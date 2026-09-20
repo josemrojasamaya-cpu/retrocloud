@@ -2,7 +2,8 @@ package com.retrosala.app.config
 
 import com.retrosala.app.BuildConfig
 
-enum class ServerMode { DEMO, LOCAL, REMOTE }
+/** LOCAL_PC is the private Windows host on the same Wi-Fi as the projector. */
+enum class ServerMode { DEMO, LOCAL, LOCAL_PC, REMOTE }
 
 data class ServerConfiguration(
     val mode: ServerMode,
@@ -15,7 +16,9 @@ data class ServerConfiguration(
 
     fun validated(): ServerConfiguration {
         if (mode == ServerMode.REMOTE) require(apiUrl.startsWith("https://")) { "El servidor remoto requiere HTTPS" }
-        if (signalingUrl.isNotBlank()) require(signalingUrl.startsWith("wss://") || mode == ServerMode.LOCAL) { "La señalización remota requiere WSS" }
+        if (signalingUrl.isNotBlank()) require(
+            signalingUrl.startsWith("wss://") || mode == ServerMode.LOCAL || mode == ServerMode.LOCAL_PC
+        ) { "La señalización remota requiere WSS" }
         return this
     }
 }

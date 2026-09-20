@@ -25,7 +25,7 @@ http.createServer(async (request, response) => {
     const match = url.pathname.match(/^\/v1\/sessions\/([\w-]+)\/(controls|pause|save|close)$/);
     if (request.method === "POST" && match) {
       const [, id, action] = match;
-      const result = action === "controls" ? manager.control(id, body) : manager[action](id);
+      const result = action === "controls" ? await manager.control(id, body) : await manager[action](id);
       return reply(response, 200, result);
     }
     const session = url.pathname.match(/^\/v1\/sessions\/([\w-]+)$/);

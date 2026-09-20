@@ -14,8 +14,8 @@ async function fixture() {
 }
 test("creates a private GBA session and accepts controls", async () => {
   const manager = await fixture(); const session = await manager.create("gba-demo");
-  assert.equal(session.platform, "gba"); assert.equal(manager.control(session.id, { control: "A", pressed: true }).accepted, true);
-  assert.equal(manager.control(session.id, { control: "joystick", pressed: true, x: 0.25, y: -0.5 }).accepted, true);
+  assert.equal(session.platform, "gba"); assert.equal((await manager.control(session.id, { control: "A", pressed: true })).accepted, true);
+  assert.equal((await manager.control(session.id, { control: "joystick", pressed: true, x: 0.25, y: -0.5 })).accepted, true);
   assert.equal(manager.get(session.id).status, "ready");
 });
 test("lists only private catalog games whose files are present", async () => {

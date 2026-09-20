@@ -6,11 +6,12 @@ import { constants } from "node:fs";
 const allowedPlatforms = new Set(["gba", "ds"]);
 
 export class SessionManager {
-  constructor({ gamesDirectory, savesDirectory, sessionsDirectory, now = () => new Date().toISOString() }) {
+  constructor({ gamesDirectory, savesDirectory, sessionsDirectory, now = () => new Date().toISOString(), runner = null }) {
     this.gamesDirectory = path.resolve(gamesDirectory);
     this.savesDirectory = path.resolve(savesDirectory);
     this.sessionsDirectory = path.resolve(sessionsDirectory);
     this.now = now;
+    this.runner = runner;
     this.sessions = new Map();
   }
 
@@ -24,11 +25,20 @@ export class SessionManager {
     await ensureRegularFile(gamePath, "archivo privado del juego no encontrado");
     const id = randomUUID();
     const session = {
-      id, gameId, platform: game.platform, status: "ready", createdAt: this.now(),
+      id, gameId, platform: game.platform, status: this.runner ? "starting" : "ready", createdAt: this.now(),
       gamePath, saveDirectory: path.join(this.savesDirectory, id),
       capture: capturePlan(game.platform), controls: [], pauseRequested: false, saveRequested: false
     };
     this.sessions.set(id, session);
+    if (this.runner) {
+      try {
+        session.runner = await this.runner.start(session);
+        session.status = "live";
+      } catch (error) {
+        this.sessions.delete(id);
+        throw new SessionError(503, error.message ?? "No se pudo iniciar el emulador local");
+      }
+    }
     return publicSession(session);
   }
 
@@ -59,9 +69,9 @@ export class SessionManager {
   }
 
   get(id) { return publicSession(this.#session(id)); }
-  control(id, input) {
+  async control(id, input) {
     const session = this.#session(id);
-    if (session.status !== "ready" && session.status !== "paused") throw new SessionError(409, "sesión no acepta controles");
+    if (session.status !== "ready" && session.status !== "live" && session.status !== "paused") throw new SessionError(409, "sesión no acepta controles");
     if (!isControl(input?.control) || typeof input?.pressed !== "boolean") throw new SessionError(400, "control inválido");
     const event = { control: input.control, pressed: input.pressed, at: this.now() };
     if (Number.isFinite(input.x) && Number.isFinite(input.y)) {
@@ -69,11 +79,28 @@ export class SessionManager {
       event.y = input.y;
     }
     session.controls.push(event);
+    if (this.runner) {
+      const delivery = await this.runner.control(session.id, event);
+      return { accepted: true, emulatorInput: delivery.delivered === true };
+    }
     return { accepted: true };
   }
-  pause(id) { const s = this.#session(id); s.status = s.status === "paused" ? "ready" : "paused"; return publicSession(s); }
-  save(id) { const s = this.#session(id); s.saveRequested = true; return { accepted: true, saveDirectory: s.saveDirectory }; }
-  close(id) { const s = this.#session(id); s.status = "closed"; s.closedAt = this.now(); return publicSession(s); }
+  async pause(id) {
+    const s = this.#session(id);
+    if (this.runner) await this.runner.pause(s.id);
+    s.status = s.status === "paused" ? (this.runner ? "live" : "ready") : "paused";
+    return publicSession(s);
+  }
+  async save(id) {
+    const s = this.#session(id); s.saveRequested = true;
+    if (this.runner) await this.runner.save(s.id);
+    return { accepted: true };
+  }
+  async close(id) {
+    const s = this.#session(id);
+    if (this.runner) await this.runner.close(s.id);
+    s.status = "closed"; s.closedAt = this.now(); return publicSession(s);
+  }
 
   #session(id) { const session = this.sessions.get(id); if (!session) throw new SessionError(404, "sesión no encontrada"); return session; }
   async #loadCatalog() {

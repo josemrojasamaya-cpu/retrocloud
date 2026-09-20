@@ -1,4 +1,4 @@
-# Servidor de emulación de RetroSala
+# Servidor de emulación de Gran Z Retro
 
 Esta carpeta prepara el lado Linux del sistema. Ejecuta juegos autorizados únicamente en el servidor; la APK nunca recibe archivos de juego, BIOS ni partidas.
 
@@ -82,3 +82,20 @@ La API ya expone un plan de captura por sesión: pantalla virtual Xvfb/Wayland, 
 Para pruebas GBA/DS de un jugador: Linux x86_64, 4 núcleos, 8 GB de RAM, 30 GB SSD y red Ethernet de 1 Gb/s. Para una sesión con vídeo H.264 por software, asigna 2 vCPU; con GPU se recomienda codificación NVENC, VAAPI o Quick Sync. Nintendo DS puede requerir más CPU para renderizado 3D.
 
 No se recomienda exponer esta API a Internet ni usarla como servicio público hasta implementar autenticación, TLS, límites de recursos y TURN.
+
+## Prueba local en Windows
+
+El modo `local-pc` permite que la APK se conecte solamente a esta computadora dentro de la misma red Wi-Fi. No publica juegos, BIOS ni rutas de Windows; usa un token obligatorio en cada llamada.
+
+1. Coloca un archivo autorizado en `games-private/gba/` o `games-private/nds/`.
+2. Copia `catalog.private.example.json` a `games-private/catalog.json` y cambia cada `file` por su ruta relativa privada. El catálogo y los archivos están ignorados por Git.
+3. Obtén la IPv4 privada de esta computadora con `ipconfig`, por ejemplo `192.168.1.50`.
+4. Inicia el modo local, reemplazando el token por uno largo y privado:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\server\scripts\start-local-pc.ps1 -BindAddress 192.168.1.50 -SessionToken "CAMBIA-ESTE-TOKEN-LARGO" -MgbaExecutable "C:\Program Files\mGBA\mGBA.exe" -MelondsExecutable "C:\ruta\a\melonDS.exe"
+   ```
+
+5. Compila la APK con `RETROSALA_SERVER_MODE=local_pc`, `RETROSALA_API_URL=http://192.168.1.50:8080` y el mismo `RETROSALA_SESSION_TOKEN`. La app sólo verá juegos cuyo archivo privado exista.
+
+El ejecutable de mGBA se inicia desde `MGBA_EXECUTABLE` y melonDS desde `MELONDS_EXECUTABLE`; ambos permanecen en Windows. El proceso se considera `live` sólo después de abrirse sin salir de inmediato. Las acciones de controles, pausa y guardado se registran con seguridad, pero todavía necesitan un puente de automatización oficialmente compatible con esos frontends para llegar al proceso real. La captura disponible es una prueba técnica con FFmpeg/GDI (`capture-windows-session.ps1`); WebRTC, señalización y reproducción de audio/video en Android siguen pendientes. Por ello aún no se debe afirmar que un juego se pueda jugar desde el proyector.
