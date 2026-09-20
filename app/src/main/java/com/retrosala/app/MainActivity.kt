@@ -40,10 +40,13 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.retrosala.app.catalog.DemoCatalogApi
 import com.retrosala.app.catalog.GameCatalogItem
+import com.retrosala.app.config.RuntimeServerConfiguration
 import com.retrosala.app.controller.LocalWebSocketControllerGateway
+import com.retrosala.app.emulation.ApiRemoteEmulationSession
 import com.retrosala.app.emulation.ControllerInput
 import com.retrosala.app.emulation.DemoRemoteEmulationSession
 import com.retrosala.app.emulation.RemoteSessionStatus
+import com.retrosala.app.emulation.HttpSessionApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import androidx.lifecycle.viewModelScope
@@ -58,7 +61,12 @@ class MainActivity : ComponentActivity() {
 
 class RetroSalaViewModel : ViewModel() {
     private val catalog = DemoCatalogApi()
-    private val session = DemoRemoteEmulationSession()
+    private val serverConfiguration = RuntimeServerConfiguration.fromBuildConfig()
+    private val session = if (serverConfiguration.usesRemoteSessionApi) {
+        ApiRemoteEmulationSession(HttpSessionApi(serverConfiguration), serverConfiguration)
+    } else {
+        DemoRemoteEmulationSession()
+    }
     private val controller = LocalWebSocketControllerGateway()
     private val _games = MutableStateFlow<List<GameCatalogItem>>(emptyList())
     val games: StateFlow<List<GameCatalogItem>> = _games
@@ -98,7 +106,7 @@ private fun RetroSalaScreen(vm: RetroSalaViewModel = viewModel()) {
     Row(Modifier.fillMaxSize().background(Color(0xFF10111A)).padding(32.dp)) {
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("RetroSala", color = Color.White, fontSize = 36.sp)
-            Text("Cliente de streaming remoto · modo demostración", color = Color(0xFFB9B8C5), fontSize = 16.sp)
+            Text("Cliente de streaming remoto · ${if (status is RemoteSessionStatus.Idle) "listo para conectar" else "sesión activa"}", color = Color(0xFFB9B8C5), fontSize = 16.sp)
             Text("Biblioteca", color = Color.White, fontSize = 24.sp)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(games) { game ->

@@ -1,6 +1,7 @@
 package com.retrosala.app.emulation
 
 import com.retrosala.app.catalog.GameCatalogItem
+import com.retrosala.app.config.ServerConfiguration
 import kotlinx.coroutines.flow.StateFlow
 
 data class RemoteSession(
@@ -55,4 +56,40 @@ class DemoRemoteEmulationSession : RemoteEmulationSession {
     override suspend fun pause() { _status.value = RemoteSessionStatus.Paused }
     override suspend fun saveGame() = Unit
     override suspend fun close() { _status.value = RemoteSessionStatus.Disconnected("Sesión de demostración cerrada") }
+}
+
+/** Cliente de una sesión ejecutada únicamente en el servidor de RetroSala. */
+class ApiRemoteEmulationSession(
+    private val api: SessionApi,
+    private val configuration: ServerConfiguration
+) : RemoteEmulationSession {
+    private val _status = kotlinx.coroutines.flow.MutableStateFlow<RemoteSessionStatus>(RemoteSessionStatus.Idle)
+    private val _video = kotlinx.coroutines.flow.MutableStateFlow<VideoFrame?>(null)
+    private val _audio = kotlinx.coroutines.flow.MutableStateFlow<AudioPacket?>(null)
+    private var activeSessionId: String? = null
+    override val status: StateFlow<RemoteSessionStatus> = _status
+
+    override suspend fun start(game: GameCatalogItem): RemoteSession {
+        _status.value = RemoteSessionStatus.Connecting
+        return try {
+            val bootstrap = api.createSession(game.gameId)
+            activeSessionId = bootstrap.sessionId
+            RemoteSession(bootstrap.sessionId, game.gameId, configuration.streamingUrl, configuration.signalingUrl).also {
+                _status.value = RemoteSessionStatus.Streaming(it)
+            }
+        } catch (error: Exception) {
+            _status.value = RemoteSessionStatus.Failed(error.message ?: "No se pudo crear la sesión")
+            throw error
+        }
+    }
+    override suspend fun selectGame(gameId: String) = Unit
+    override suspend fun sendInput(input: ControllerInput) { activeSessionId?.let { api.sendControl(it, input) } }
+    override fun videoFrames(): StateFlow<VideoFrame?> = _video
+    override fun audioPackets(): StateFlow<AudioPacket?> = _audio
+    override suspend fun pause() { activeSessionId?.let { api.pause(it); _status.value = RemoteSessionStatus.Paused } }
+    override suspend fun saveGame() { activeSessionId?.let { sessionId -> api.save(sessionId) } }
+    override suspend fun close() {
+        activeSessionId?.let { sessionId -> api.close(sessionId) }; activeSessionId = null
+        _status.value = RemoteSessionStatus.Disconnected("Sesión remota cerrada")
+    }
 }

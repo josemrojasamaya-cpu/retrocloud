@@ -4,6 +4,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+fun configuredString(name: String, defaultValue: String): String = providers.gradleProperty(name)
+    .orElse(providers.environmentVariable(name))
+    .getOrElse(defaultValue)
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+
 android {
     namespace = "com.retrosala.app"
     compileSdk = 35
@@ -14,6 +20,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "RETROSALA_SERVER_MODE", "\"${configuredString("RETROSALA_SERVER_MODE", "demo")}\"")
+        buildConfigField("String", "RETROSALA_API_URL", "\"${configuredString("RETROSALA_API_URL", "")}\"")
+        buildConfigField("String", "RETROSALA_SIGNALING_URL", "\"${configuredString("RETROSALA_SIGNALING_URL", "")}\"")
+        buildConfigField("String", "RETROSALA_STREAMING_URL", "\"${configuredString("RETROSALA_STREAMING_URL", "")}\"")
+        buildConfigField("String", "RETROSALA_SESSION_TOKEN", "\"${configuredString("RETROSALA_SESSION_TOKEN", "")}\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
