@@ -40,6 +40,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.retrosala.app.catalog.DemoCatalogApi
 import com.retrosala.app.catalog.GameCatalogItem
+import com.retrosala.app.catalog.RemoteCatalogApi
 import com.retrosala.app.config.RuntimeServerConfiguration
 import com.retrosala.app.controller.LocalWebSocketControllerGateway
 import com.retrosala.app.emulation.ApiRemoteEmulationSession
@@ -60,10 +61,11 @@ class MainActivity : ComponentActivity() {
 }
 
 class RetroSalaViewModel : ViewModel() {
-    private val catalog = DemoCatalogApi()
     private val serverConfiguration = RuntimeServerConfiguration.fromBuildConfig()
+    private val api = if (serverConfiguration.usesRemoteSessionApi) HttpSessionApi(serverConfiguration) else null
+    private val catalog = api?.let(::RemoteCatalogApi) ?: DemoCatalogApi()
     private val session = if (serverConfiguration.usesRemoteSessionApi) {
-        ApiRemoteEmulationSession(HttpSessionApi(serverConfiguration), serverConfiguration)
+        ApiRemoteEmulationSession(requireNotNull(api), serverConfiguration)
     } else {
         DemoRemoteEmulationSession()
     }

@@ -32,6 +32,31 @@ export class SessionManager {
     return publicSession(session);
   }
 
+  async listCatalog() {
+    const catalog = await this.#loadCatalog();
+    const games = [];
+    for (const [gameId, game] of Object.entries(catalog)) {
+      if (!isIdentifier(gameId) || !allowedPlatforms.has(game?.platform)) continue;
+      const gamePath = privateFile(this.gamesDirectory, game.file);
+      try {
+        await ensureRegularFile(gamePath, "archivo privado del juego no encontrado");
+        games.push({
+          gameId,
+          title: typeof game.title === "string" && game.title.trim() ? game.title.trim() : gameId,
+          platform: game.platform,
+          language: typeof game.language === "string" ? game.language : "es",
+          emulationServer: typeof game.emulationServer === "string" ? game.emulationServer : "default",
+          streamingAvailable: false,
+          players: Number.isInteger(game.players) && game.players > 0 ? game.players : 1,
+          description: typeof game.description === "string" ? game.description : "Sesión privada remota."
+        });
+      } catch (error) {
+        if (!(error instanceof SessionError)) throw error;
+      }
+    }
+    return games;
+  }
+
   get(id) { return publicSession(this.#session(id)); }
   control(id, input) {
     const session = this.#session(id);

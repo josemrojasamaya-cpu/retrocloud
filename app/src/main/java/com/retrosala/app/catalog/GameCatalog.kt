@@ -1,5 +1,7 @@
 package com.retrosala.app.catalog
 
+import com.retrosala.app.emulation.SessionApi
+
 enum class Platform(val label: String) { GBA("Game Boy Advance"), DS("Nintendo DS") }
 
 data class GameCatalogItem(
@@ -25,4 +27,20 @@ class DemoCatalogApi : CatalogApi {
         GameCatalogItem("ds-demo-farm", "Granja DS", Platform.DS, "es", "demo-ds-01", true, 1, "Sesión remota de prueba."),
         GameCatalogItem("ds-demo-puzzle", "Puzzle DS", Platform.DS, "es", "demo-ds-01", true, 2, "Sesión remota multijugador de prueba.")
     )
+}
+
+/** Biblioteca privada entregada por la API; nunca contiene rutas ni enlaces de ROM. */
+class RemoteCatalogApi(private val sessionApi: SessionApi) : CatalogApi {
+    override suspend fun listGames() = sessionApi.listCatalog().map { game ->
+        GameCatalogItem(
+            gameId = game.gameId,
+            title = game.title,
+            platform = if (game.platform == "ds") Platform.DS else Platform.GBA,
+            language = game.language,
+            emulationServer = game.emulationServer,
+            streamingAvailable = game.streamingAvailable,
+            players = game.players,
+            description = game.description
+        )
+    }
 }

@@ -1,0 +1,20 @@
+{
+  "gba-personal-example": {
+    "title": "Juego GBA autorizado",
+    "platform": "gba",
+    "file": "gba/archivo-autorizado.gba",
+    "language": "es",
+    "emulationServer": "retro-gba-01",
+    "players": 1,
+    "description": "Archivo privado proporcionado por el propietario."
+  },
+  "ds-personal-example": {
+    "title": "Juego DS autorizado",
+    "platform": "ds",
+    "file": "ds/archivo-autorizado.nds",
+    "language": "es",
+    "emulationServer": "retro-ds-01",
+    "players": 1,
+    "description": "Archivo privado proporcionado por el propietario."
+  }
+}

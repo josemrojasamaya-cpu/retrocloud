@@ -19,6 +19,7 @@ http.createServer(async (request, response) => {
     if (url.pathname.startsWith("/v1/") && apiToken && request.headers.authorization !== `Bearer ${apiToken}`) {
       return reply(response, 401, { error: "token de sesión inválido" });
     }
+    if (request.method === "GET" && url.pathname === "/v1/catalog") return reply(response, 200, { games: await manager.listCatalog() });
     const body = await jsonBody(request);
     if (request.method === "POST" && url.pathname === "/v1/sessions") return reply(response, 201, await manager.create(body.gameId));
     const match = url.pathname.match(/^\/v1\/sessions\/([\w-]+)\/(controls|pause|save|close)$/);

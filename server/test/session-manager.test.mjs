@@ -8,13 +8,24 @@ import { SessionManager, SessionError } from "../src/session-manager.mjs";
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "retrosala-"));
   const games = path.join(root, "games"); await mkdir(games); await mkdir(path.join(root, "saves")); await mkdir(path.join(root, "sessions"));
-  await writeFile(path.join(games, "catalog.json"), JSON.stringify({ "gba-demo": { platform: "gba", file: "demo.gba" } }));
+  await writeFile(path.join(games, "catalog.json"), JSON.stringify({ "gba-demo": { title: "Ejemplo GBA", platform: "gba", file: "demo.gba", players: 1 } }));
   await writeFile(path.join(games, "demo.gba"), "test");
   return new SessionManager({ gamesDirectory: games, savesDirectory: path.join(root, "saves"), sessionsDirectory: path.join(root, "sessions") });
 }
 test("creates a private GBA session and accepts controls", async () => {
   const manager = await fixture(); const session = await manager.create("gba-demo");
   assert.equal(session.platform, "gba"); assert.equal(manager.control(session.id, { control: "A", pressed: true }).accepted, true);
+});
+test("lists only private catalog games whose files are present", async () => {
+  const manager = await fixture();
+  const catalogPath = path.join(manager.gamesDirectory, "catalog.json");
+  await writeFile(catalogPath, JSON.stringify({
+    "gba-demo": { title: "Ejemplo GBA", platform: "gba", file: "demo.gba", players: 1 },
+    "not-ready": { title: "No disponible", platform: "ds", file: "not-present.nds" }
+  }));
+  const games = await manager.listCatalog();
+  assert.deepEqual(games.map(game => game.gameId), ["gba-demo"]);
+  assert.equal(games[0].streamingAvailable, false);
 });
 test("rejects an unknown gameId", async () => {
   const manager = await fixture(); await assert.rejects(() => manager.create("missing"), SessionError);
