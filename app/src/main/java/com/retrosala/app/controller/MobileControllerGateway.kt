@@ -100,8 +100,8 @@ private class ControllerServer(
         override fun onException(exception: IOException) = Unit
     }
 
-    override fun serveHttp(session: IHTTPSession): Response =
-        newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", controllerPage())
+    override fun serveHttp(session: IHTTPSession): NanoHTTPD.Response =
+        NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/html; charset=utf-8", controllerPage())
 
     private fun controllerPage() = """<!doctype html><html><meta name=viewport content='width=device-width,initial-scale=1'><style>body{background:#10111a;color:#fff;font-family:sans-serif;text-align:center}button{font-size:24px;margin:8px;padding:20px;border-radius:12px}.d{display:grid;grid-template-columns:repeat(3,1fr);max-width:360px;margin:auto}</style><h1>RetroSala</h1><p id=s>Conectando…</p><div class=d><span></span><button data-c=cima>↑</button><span></span><button data-c=izquierda>←</button><button data-c=abajo>↓</button><button data-c=derecha>→</button></div><p><button data-c=A>A</button><button data-c=B>B</button><button data-c=Start>Start</button><button data-c=Select>Select</button><button data-c=Pausa>Pausa</button></p><script>const w=new WebSocket('ws://'+location.host);w.onopen=()=>s.textContent='Conectado';document.querySelectorAll('button').forEach(b=>{let f=x=>w.readyState===1&&w.send(b.dataset.c+':'+(x?'down':'up'));b.onpointerdown=()=>f(1);b.onpointerup=b.onpointerleave=()=>f(0)})</script></html>"""
 }
