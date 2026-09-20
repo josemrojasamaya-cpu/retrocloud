@@ -52,7 +52,7 @@ class LocalWebSocketControllerGateway(private val port: Int = 8090) : MobileCont
     override suspend fun start() {
         if (server != null) return
         val host = localIpv4() ?: "127.0.0.1"
-        server = ControllerServer(port, onOpen = {
+        server = ControllerServer(port, onControllerConnected = {
             val player = nextPlayer++
             _controllers.value = _controllers.value + ConnectedController(player, "Jugador $player")
             player
@@ -84,13 +84,13 @@ class LocalWebSocketControllerGateway(private val port: Int = 8090) : MobileCont
 
 private class ControllerServer(
     port: Int,
-    private val onOpen: () -> Int,
+    private val onControllerConnected: () -> Int,
     private val onClose: (Int) -> Unit,
     private val onInput: (Int, String, Boolean) -> Unit
 ) : NanoWSD(port) {
     override fun openWebSocket(handshake: IHTTPSession): WebSocket = object : WebSocket(handshake) {
         private var player = 0
-        override fun onOpen() { player = onOpen() }
+        override fun onOpen() { player = onControllerConnected() }
         override fun onClose(code: WebSocketFrame.CloseCode, reason: String, initiatedByRemote: Boolean) { if (player != 0) onClose(player) }
         override fun onMessage(message: WebSocketFrame) {
             val parts = message.textPayload.split(":")
