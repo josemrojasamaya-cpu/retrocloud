@@ -37,6 +37,12 @@ for ($attempt = 0; $attempt -lt 30; $attempt++) {
         $hwnd = $process.MainWindowHandle
         $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
         $w = 512; $h = 384
+        if ($gpuPlatforms -contains $Platform) {
+            # Sized so the client area matches the stream's 640x480 output: the
+            # emulator downscales its upscaled render on the GPU and FFmpeg then
+            # captures at the final size instead of rescaling on the CPU.
+            $w = 656; $h = 519
+        }
         $x = $screen.Right - $w - 10
         $y = $screen.Bottom - $h - 10
 

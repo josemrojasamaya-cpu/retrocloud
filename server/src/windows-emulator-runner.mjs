@@ -101,11 +101,12 @@ export class WindowsEmulatorRunner {
     } else {
       ffArgs.push('-i', `hwnd=${hwnd}`);
     }
+    const scale = useDesktop ? 'scale=640:-2' : (isDS ? 'crop=in_w:in_h-30:0:30,scale=384:-2' : 'scale=320:-2');
     ffArgs.push(
-      "-vf", isDS ? "crop=in_w:in_h-30:0:30,scale=384:-2" : "scale=320:-2",
+      "-vf", scale,
       '-pix_fmt', 'yuvj420p', '-threads', '1',
       "-f", "mjpeg",
-      "-q:v", isDS ? "2" : (useDesktop ? "3" : "5"),
+      "-q:v", isDS ? "2" : (useDesktop ? "4" : "5"),
       "-an",
       "pipe:1"
     );
