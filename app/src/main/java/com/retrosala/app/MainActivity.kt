@@ -117,6 +117,9 @@ class RetroSalaViewModel : ViewModel() {
     val streamFrame: StateFlow<Bitmap?> = _streamFrame
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming
+    // Reported by the PC server, which owns the controller pairing.
+    private val _activePlayers = MutableStateFlow<List<Int>>(emptyList())
+    val activePlayers: StateFlow<List<Int>> = _activePlayers
 
     init {
         viewModelScope.launch {
@@ -189,6 +192,7 @@ class RetroSalaViewModel : ViewModel() {
                 gameWebSocket = ws
                 mediaJobs += viewModelScope.launch { ws.frame.collect { frame -> _streamFrame.value = frame } }
                 mediaJobs += viewModelScope.launch { ws.message.collect { videoMessage.value = it } }
+                mediaJobs += viewModelScope.launch { ws.players.collect { _activePlayers.value = it } }
             }
         }
 
@@ -222,6 +226,7 @@ class RetroSalaViewModel : ViewModel() {
         mediaJobs.forEach { it.cancel() }; mediaJobs.clear()
         _isStreaming.value = false
         _streamFrame.value = null
+        _activePlayers.value = emptyList()
     }
     override fun onCleared() { stopMedia(); super.onCleared() }
 }
@@ -237,12 +242,13 @@ private fun AmayomiRetroScreen(vm: RetroSalaViewModel = viewModel()) {
     val frame by vm.streamFrame.collectAsStateWithLifecycle()
     val videoMessage by vm.videoMessage.collectAsStateWithLifecycle()
     val audioMessage by vm.audioMessage.collectAsStateWithLifecycle()
+    val activePlayers by vm.activePlayers.collectAsStateWithLifecycle()
     var platform by remember { mutableStateOf<Platform?>(null) }
     var selectedGame by remember { mutableStateOf<GameCatalogItem?>(null) }
     val library = platform?.let { gamesForPlatform(games, it) }.orEmpty()
 
     if (streaming) {
-        StreamingScreen(frame, url, controllers.size, "$videoMessage · $audioMessage", onClose = vm::close)
+        StreamingScreen(frame, activePlayers, "$videoMessage · $audioMessage", onClose = vm::close)
     } else {
         CatalogScreen(
             games, status, url, controllers, lastControl,
@@ -259,7 +265,7 @@ private fun AmayomiRetroScreen(vm: RetroSalaViewModel = viewModel()) {
 
 @Composable
 private fun StreamingScreen(
-    frame: Bitmap?, controllerUrl: String, controllerCount: Int, lastControl: String, onClose: () -> Unit
+    frame: Bitmap?, activePlayers: List<Int>, lastControl: String, onClose: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (frame != null) Image(
@@ -274,21 +280,32 @@ private fun StreamingScreen(
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xCC4C1D3B))
         ) { Text("Salir", color = Color.White, fontWeight = FontWeight.Bold) }
-        if (controllerCount == 0) {
-            Card(
-                Modifier.align(Alignment.BottomEnd).padding(16.dp).width(180.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xCC10162B)),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    val qr = remember(controllerUrl) { createQr(controllerUrl) }
-                    Image(qr.asImageBitmap(), "QR mando", Modifier.width(100.dp).height(100.dp).background(Color.White))
-                    Spacer(Modifier.height(6.dp))
-                    Text("Escanea para jugar", color = Cyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
+        // Opposite corner from the emulator's own FPS overlay.
+        ControllerBadges(activePlayers, Modifier.align(Alignment.TopStart).padding(16.dp))
+    }
+}
+
+@Composable
+private fun ControllerBadges(activePlayers: List<Int>, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (activePlayers.isEmpty()) {
+            Badge("SIN CONTROLES", Color(0xCC1A1A2E), Color(0xFF8B8FA3))
+        } else {
+            activePlayers.sorted().forEach { player ->
+                val accent = if (player == 1) Violet else Cyan
+                Badge("CONTROL $player", Color(0xCC10162B), accent)
             }
         }
     }
+}
+
+@Composable
+private fun Badge(text: String, background: Color, accent: Color) {
+    Box(
+        Modifier.background(background, RoundedCornerShape(999.dp))
+            .border(1.dp, accent, RoundedCornerShape(999.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) { Text(text, color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
 }
 
 @Composable

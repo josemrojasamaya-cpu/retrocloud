@@ -22,6 +22,8 @@ class GameWebSocket(
     val frame: StateFlow<Bitmap?> = _frame
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected
+    private val _players = MutableStateFlow<List<Int>>(emptyList())
+    val players: StateFlow<List<Int>> = _players
     val message = MutableStateFlow("Conectando video…")
 
     @Volatile private var running = true
@@ -57,7 +59,12 @@ class GameWebSocket(
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
-                // Server control acknowledgments — ignored for now
+                runCatching {
+                    val json = JSONObject(text)
+                    if (json.optString("type") != "controllers") return@runCatching
+                    val array = json.getJSONArray("players")
+                    _players.value = (0 until array.length()).map { array.getInt(it) }
+                }
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {

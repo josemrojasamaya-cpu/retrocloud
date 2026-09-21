@@ -88,10 +88,12 @@ export class SessionManager {
     const session = this.#session(id);
     if (session.status !== "ready" && session.status !== "live" && session.status !== "paused") throw new SessionError(409, "sesión no acepta controles");
     if (!isControl(input?.control) || typeof input?.pressed !== "boolean") throw new SessionError(400, "control inválido");
-    const event = { control: input.control, pressed: input.pressed, at: this.now() };
-    if (Number.isFinite(input.x) && Number.isFinite(input.y)) {
-      event.x = input.x;
-      event.y = input.y;
+    const event = { control: input.control, pressed: input.pressed, player: playerSlot(input.player), at: this.now() };
+    const x = input.x ?? input.normalizedX;
+    const y = input.y ?? input.normalizedY;
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      event.x = x;
+      event.y = y;
     }
     session.controls.push(event);
     if (session.controls.length > 100) session.controls.shift();
@@ -161,6 +163,7 @@ function capturePlan(platform) {
   };
 }
 function isIdentifier(value) { return typeof value === "string" && /^[a-z0-9][a-z0-9-]{1,80}$/.test(value); }
+function playerSlot(value) { return value === 2 ? 2 : 1; }
 function isControl(value) { return typeof value === "string" && /^[A-Za-z0-9_-]{1,32}$/.test(value); }
 function privateFile(root, relative) {
   if (typeof relative !== "string" || relative.includes("..") || path.isAbsolute(relative)) throw new SessionError(400, "ruta privada inválida");

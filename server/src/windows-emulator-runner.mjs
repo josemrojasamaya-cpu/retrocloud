@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { JpegFrames, jpegPart } from './media-stream.mjs';
 import { WindowsInput } from './windows-input.mjs';
 import { prepareMelonDS } from './melonds-config.mjs';
+import { prepareDuckStation } from './duckstation-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -36,6 +37,7 @@ export class WindowsEmulatorRunner {
     await mkdir(session.saveDirectory, { recursive: true });
     if (session.platform === 'gba') await prepareSoftwareDisplay(executable);
     else if (session.platform === 'ds') await prepareMelonDS(executable, session.saveDirectory);
+    else if (session.platform === 'ps1') await prepareDuckStation(executable);
 
     let args;
     if (session.platform === 'gba') args = ['-C', `savegamePath=${session.saveDirectory}`, '-C', `savestatePath=${session.saveDirectory}`, session.gamePath];
@@ -156,7 +158,16 @@ export class WindowsEmulatorRunner {
   addWsClient(ws) {
     this._wsClients.add(ws);
     if (this.lastRawFrame) ws.send(this.lastRawFrame);
+    if (this.lastStatusText) ws.send(this.lastStatusText);
     ws.on('close', () => this._wsClients.delete(ws));
+  }
+
+  broadcastText(text) {
+    this.lastStatusText = text;
+    for (const ws of this._wsClients) {
+      if (ws.readyState !== 1) { this._wsClients.delete(ws); continue; }
+      ws.send(text);
+    }
   }
 
   addStreamClient(res) {

@@ -91,12 +91,27 @@ wss.on("connection", (ws, req) => {
 });
 
 const controlWss = new WebSocketServer({ noServer: true });
-let controlPlayerCount = 0;
+const MAX_PLAYERS = 2;
+const takenSlots = new Set();
+
+// Slots are reused on disconnect so a reconnecting phone reclaims player 1
+// instead of pushing the numbering past the emulator's two pads.
+function claimSlot() {
+  for (let slot = 1; slot <= MAX_PLAYERS; slot++) if (!takenSlots.has(slot)) { takenSlots.add(slot); return slot; }
+  return 0;
+}
+
+function announceControllers() {
+  runner.broadcastText(JSON.stringify({ type: "controllers", players: [...takenSlots].sort() }));
+}
+
 controlWss.on("connection", (ws) => {
-  const player = ++controlPlayerCount;
+  const player = claimSlot();
+  if (!player) { ws.close(4002, "sala llena"); return; }
   ws.send("player:" + player);
   const platform = manager.activePlatform();
   if (platform) ws.send("platform:" + platform);
+  announceControllers();
   ws.on("message", async (data) => {
     const msg = data.toString();
     const activeSession = manager.activeSessionId();
@@ -104,18 +119,18 @@ controlWss.on("connection", (ws) => {
     const parsed = parseControlMessage(player, msg);
     if (parsed) await manager.control(activeSession, parsed).catch(() => {});
   });
-  ws.on("close", () => { controlPlayerCount = Math.max(0, controlPlayerCount - 1); });
+  ws.on("close", () => { takenSlots.delete(player); announceControllers(); });
 });
 
 function parseControlMessage(player, msg) {
   const parts = msg.split(":");
   if (parts[0] === "joystick" && parts.length >= 3) {
     const x = parseFloat(parts[1]), y = parseFloat(parts[2]);
-    if (!isNaN(x) && !isNaN(y)) return { player, control: "joystick", pressed: true, normalizedX: x, normalizedY: y };
+    if (!isNaN(x) && !isNaN(y)) return { player, control: "joystick", pressed: true, x, y };
   }
   if (parts[0] === "ds-touch" && parts.length >= 4) {
     const phase = parts[1], x = parseFloat(parts[2]), y = parseFloat(parts[3]);
-    if (!isNaN(x) && !isNaN(y)) return { player, control: `ds-touch-${phase}`, pressed: phase !== "up", normalizedX: x, normalizedY: y };
+    if (!isNaN(x) && !isNaN(y)) return { player, control: `ds-touch-${phase}`, pressed: phase !== "up", x, y };
   }
   if (parts.length === 2 && (parts[1] === "down" || parts[1] === "up")) {
     return { player, control: parts[0], pressed: parts[1] === "down" };
@@ -162,6 +177,9 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:
 .brand{font-size:13px;font-weight:800;letter-spacing:2px;color:#7c3aed}
 .st{font-size:10px;color:#666}.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#f43f5e;margin-right:4px}
 .on .dot{background:#22d3ee;box-shadow:0 0 6px #22d3ee}
+.pill{font-size:11px;font-weight:800;letter-spacing:1px;padding:3px 9px;border-radius:999px;background:#1a1a2e;border:1px solid #333;color:#555}
+.pill.p1{background:#2a1147;border-color:#a78bfa;color:#c4b5fd}
+.pill.p2{background:#06364a;border-color:#22d3ee;color:#7dd3fc}
 
 /* === SHOULDERS === */
 .sh{display:flex;justify-content:space-between;gap:6px;padding:0 2px}
@@ -225,7 +243,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:
 <header class=bar>
   <span class=brand>AMAYOMI RETRO</span>
   <span id=state class=st><i class=dot></i>Conectando</span>
-  <span id=player style="font-size:10px;color:#555">--</span>
+  <span id=player class=pill>--</span>
 </header>
 
 <!-- ===== SHOULDERS ===== -->
@@ -332,9 +350,11 @@ function connect(){
   const proto=location.protocol==='https:'?'wss:':'ws:';
   ws=new WebSocket(proto+'//'+location.host+'/ws-control');
   ws.onopen=()=>{stateEl.className='st on';stateEl.innerHTML='<i class=dot></i>Conectado'};
-  ws.onclose=()=>{stateEl.className='st';stateEl.innerHTML='<i class=dot></i>Reconectando';setTimeout(connect,1200)};
+  ws.onclose=ev=>{stateEl.className='st';
+    if(ev.code===4002){stateEl.innerHTML='<i class=dot></i>Sala llena (2 controles)';return}
+    stateEl.innerHTML='<i class=dot></i>Reconectando';setTimeout(connect,1200)};
   ws.onmessage=e=>{
-    if(e.data.startsWith('player:'))playerEl.textContent='J'+e.data.slice(7);
+    if(e.data.startsWith('player:')){player=+e.data.slice(7);playerEl.textContent='CONTROL '+player;playerEl.className='pill p'+player}
     if(e.data.startsWith('platform:'))setPlatform(e.data.slice(9));
   };
 }connect();
