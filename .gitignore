@@ -26,6 +26,12 @@ saves/
 *.zip
 gbs/
 DS/
+PS1/
+PSP/
+node_modules/
+*.rar
+*.exe
+*.log
 app-debug.apk
 server/streaming/output/
 melonDS-*.zip

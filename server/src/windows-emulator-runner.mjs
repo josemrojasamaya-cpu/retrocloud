@@ -39,7 +39,9 @@ export class WindowsEmulatorRunner {
 
     let args;
     if (session.platform === 'gba') args = ['-C', `savegamePath=${session.saveDirectory}`, '-C', `savestatePath=${session.saveDirectory}`, session.gamePath];
-    else if (session.platform === 'ps1') args = ['-fullscreen', '-nogui', '--', session.gamePath];
+    // -fullscreen makes DuckStation render into a separate window, leaving the
+    // captured main window empty and showing the desktop behind it.
+    else if (session.platform === 'ps1') args = ['-nogui', session.gamePath];
     else if (session.platform === 'psp') args = [session.gamePath, '--fullscreen'];
     else args = [session.gamePath];
 
@@ -62,8 +64,11 @@ export class WindowsEmulatorRunner {
     record.started = true;
 
     this.media = { video: 'connecting', audio: 'connecting', frames: 0, audioBytes: 0 };
-    const hwnd = (await powershell('emulator-window.ps1', ['-EmulatorProcessId', String(child.pid)])).trim();
+    const winInfo = (await powershell('emulator-window.ps1', ['-EmulatorProcessId', String(child.pid), '-Platform', session.platform])).trim();
+    const parts = winInfo.split(/\s+/);
+    const hwnd = parts[0];
     if (!/^\d+$/.test(hwnd) || hwnd === '0') throw new Error('No se encontró la ventana del emulador');
+    record.winRect = parts.length >= 5 ? { x: +parts[1], y: +parts[2], w: +parts[3], h: +parts[4] } : null;
     record.input = new WindowsInput(this.python, path.join(root, 'scripts', 'input-bridge.py'), hwnd, session.platform);
     await record.input.write([]);
     await this._startCapture(session.id, hwnd);
@@ -76,23 +81,35 @@ export class WindowsEmulatorRunner {
   }
 
   async _startCapture(sessionId, hwnd) {
-    const isDS = this.processes.get(sessionId)?.platform === 'ds';
+    const record = this.processes.get(sessionId);
+    const platform = record?.platform;
+    const isDS = platform === 'ds';
+    const rect = record?.winRect;
+    // gdigrab's hwnd input returns stale/incorrect pixels for GPU-rendered
+    // windows, so those are grabbed from the desktop at the window's location.
+    const useDesktop = (platform === 'ps1' || platform === 'psp') && rect;
     const ffArgs = [
       '-hide_banner', '-loglevel', 'error', '-nostdin',
       '-fflags', 'nobuffer', '-flags', 'low_delay',
       '-probesize', '32', '-analyzeduration', '0',
       "-f", "gdigrab", '-draw_mouse', '0',
-      "-framerate", isDS ? '25' : '25',
-      "-i", `hwnd=${hwnd}`,
+      "-framerate", '25',
+    ];
+    if (useDesktop) {
+      ffArgs.push('-offset_x', String(rect.x), '-offset_y', String(rect.y),
+        '-video_size', `${rect.w}x${rect.h}`, '-i', 'desktop');
+    } else {
+      ffArgs.push('-i', `hwnd=${hwnd}`);
+    }
+    ffArgs.push(
       "-vf", isDS ? "crop=in_w:in_h-30:0:30,scale=384:-2" : "scale=320:-2",
       '-pix_fmt', 'yuvj420p', '-threads', '1',
       "-f", "mjpeg",
-      "-q:v", isDS ? "2" : "5",
+      "-q:v", isDS ? "2" : (useDesktop ? "3" : "5"),
       "-an",
       "pipe:1"
-    ];
+    );
     const ff = spawn(this.ffmpeg, ffArgs, { stdio: ["ignore", "pipe", "pipe"] });
-    const record = this.processes.get(sessionId);
     if (record) record.ffmpeg = ff;
 
     let ready;

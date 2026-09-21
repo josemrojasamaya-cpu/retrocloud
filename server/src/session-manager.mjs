@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { constants } from "node:fs";
 import { execFile } from "node:child_process";
@@ -129,13 +129,17 @@ export class SessionManager {
   }
   #releaseCloudFile(filePath) {
     if (!filePath || !filePath.includes('OneDrive')) return;
-    execFile('attrib', ['+U', '-P', filePath], { windowsHide: true }, () => {});
     const dir = path.dirname(filePath);
     const base = path.basename(filePath, path.extname(filePath));
-    const binFile = path.join(dir, base + '.bin');
-    access(binFile, constants.R_OK).then(() =>
-      execFile('attrib', ['+U', '-P', binFile], { windowsHide: true }, () => {})
-    ).catch(() => {});
+    // Multi-track discs store each track as a separate "<base> (Track N).bin",
+    // so every sibling sharing the base name is released, not just "<base>.bin".
+    readdir(dir).then(names => {
+      for (const name of names) {
+        if (name === path.basename(filePath) || name.startsWith(base)) {
+          execFile('attrib', ['+U', '-P', path.join(dir, name)], { windowsHide: true }, () => {});
+        }
+      }
+    }).catch(() => {});
   }
 
   #session(id) { const session = this.sessions.get(id); if (!session) throw new SessionError(404, "sesión no encontrada"); return session; }
