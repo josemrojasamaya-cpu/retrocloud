@@ -57,8 +57,10 @@ class HttpSessionApi(private val configuration: ServerConfiguration) : SessionAp
 
     private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
         require(configuration.apiUrl.isNotBlank()) { "RETROSALA_API_URL no está configurada" }
+        val isSessionCreate = method == "POST" && path == "/v1/sessions"
         val connection = (URL("${configuration.apiUrl}$path").openConnection() as HttpURLConnection).apply {
-            requestMethod = method; connectTimeout = 8_000; readTimeout = 12_000
+            requestMethod = method; connectTimeout = 8_000
+            readTimeout = if (isSessionCreate) 30_000 else 12_000
             setRequestProperty("content-type", "application/json")
             if (configuration.sessionToken.isNotBlank()) setRequestProperty("authorization", "Bearer ${configuration.sessionToken}")
             doOutput = body != null

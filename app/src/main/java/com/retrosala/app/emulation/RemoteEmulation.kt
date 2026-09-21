@@ -73,6 +73,8 @@ class ApiRemoteEmulationSession(
     private val _video = kotlinx.coroutines.flow.MutableStateFlow<VideoFrame?>(null)
     private val _audio = kotlinx.coroutines.flow.MutableStateFlow<AudioPacket?>(null)
     private var activeSessionId: String? = null
+    var gameWebSocket: com.retrosala.app.streaming.GameWebSocket? = null
+        private set
     override val status: StateFlow<RemoteSessionStatus> = _status
 
     override suspend fun start(game: GameCatalogItem): RemoteSession {
@@ -89,13 +91,27 @@ class ApiRemoteEmulationSession(
         }
     }
     override suspend fun selectGame(gameId: String) = Unit
-    override suspend fun sendInput(input: ControllerInput) { activeSessionId?.let { api.sendControl(it, input) } }
+    override suspend fun sendInput(input: ControllerInput) {
+        gameWebSocket?.sendControl(input) ?: activeSessionId?.let { api.sendControl(it, input) }
+    }
     override fun videoFrames(): StateFlow<VideoFrame?> = _video
     override fun audioPackets(): StateFlow<AudioPacket?> = _audio
     override suspend fun pause() { activeSessionId?.let { api.pause(it); _status.value = RemoteSessionStatus.Paused } }
     override suspend fun saveGame() { activeSessionId?.let { sessionId -> api.save(sessionId) } }
     override suspend fun close() {
+        gameWebSocket?.stop(); gameWebSocket = null
         activeSessionId?.let { sessionId -> api.close(sessionId) }; activeSessionId = null
         _status.value = RemoteSessionStatus.Disconnected("Sesión remota cerrada")
+    }
+
+    fun connectWebSocket() {
+        if (configuration.apiUrl.isBlank()) return
+        val ws = com.retrosala.app.streaming.GameWebSocket(configuration.apiUrl, configuration.sessionToken)
+        gameWebSocket = ws
+        ws.connect()
+    }
+
+    fun disconnectWebSocket() {
+        gameWebSocket?.stop(); gameWebSocket = null
     }
 }

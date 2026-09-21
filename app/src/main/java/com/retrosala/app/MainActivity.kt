@@ -6,7 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -62,6 +65,7 @@ import com.retrosala.app.emulation.ControllerInput
 import com.retrosala.app.emulation.DemoRemoteEmulationSession
 import com.retrosala.app.emulation.HttpSessionApi
 import com.retrosala.app.emulation.RemoteSessionStatus
+import com.retrosala.app.streaming.GameWebSocket
 import com.retrosala.app.streaming.MjpegStreamReader
 import com.retrosala.app.streaming.PcmAudioStream
 import kotlinx.coroutines.Job
@@ -94,12 +98,17 @@ class RetroSalaViewModel : ViewModel() {
     private val _games = MutableStateFlow<List<GameCatalogItem>>(emptyList())
     val games: StateFlow<List<GameCatalogItem>> = _games
     val status = session.status
-    val controllerUrl = controller.controllerUrl
+    private val _controllerUrl = MutableStateFlow(
+        if (serverConfiguration.apiUrl.isNotBlank()) "${serverConfiguration.apiUrl}/control"
+        else "Preparando mando…"
+    )
+    val controllerUrl: StateFlow<String> = _controllerUrl
     val connectedControllers = controller.connectedControllers
     private val _lastControl = MutableStateFlow("Esperando mando móvil")
     val lastControl: StateFlow<String> = _lastControl
 
     private var mjpegReader: MjpegStreamReader? = null
+    private var gameWebSocket: GameWebSocket? = null
     private var audioReader: PcmAudioStream? = null
     private val mediaJobs = mutableListOf<Job>()
     val videoMessage = MutableStateFlow("")
@@ -138,29 +147,59 @@ class RetroSalaViewModel : ViewModel() {
         videoMessage.value = "Abriendo el juego en la PC…"
         audioMessage.value = ""
         try {
-        session.start(game)
-        if (serverConfiguration.streamingUrl.isNotBlank()) {
-            startStream(serverConfiguration.streamingUrl)
-        } else if (serverConfiguration.apiUrl.isNotBlank()) {
-            startStream("${serverConfiguration.apiUrl}/v1/stream")
-        }
+            session.start(game)
+            if (serverConfiguration.streamingUrl.isNotBlank()) {
+                startStream(serverConfiguration.streamingUrl)
+            } else if (serverConfiguration.apiUrl.isNotBlank()) {
+                startStream("${serverConfiguration.apiUrl}/v1/stream")
+            }
         } catch (error: CancellationException) { throw error
         } catch (error: Exception) {
-            _lastControl.value = error.message ?: "No se pudo abrir el juego"
+            val friendly = when {
+                error.message?.contains("MELONDS", ignoreCase = true) == true ->
+                    "Nintendo DS no está configurado en el servidor"
+                error.message?.contains("MGBA", ignoreCase = true) == true ->
+                    "Game Boy Advance no está configurado en el servidor"
+                error.message?.contains("DUCKSTATION", ignoreCase = true) == true ->
+                    "PlayStation 1 no está configurado en el servidor"
+                error.message?.contains("PPSSPP", ignoreCase = true) == true ->
+                    "PlayStation Portable no está configurado en el servidor"
+                error.message?.contains("ventana", ignoreCase = true) == true ->
+                    "El emulador no abrió correctamente en la PC"
+                error.message?.contains("emulador", ignoreCase = true) == true ->
+                    "Error al iniciar el emulador: ${error.message}"
+                else -> error.message ?: "No se pudo abrir el juego"
+            }
+            _lastControl.value = friendly
+            videoMessage.value = ""
+            audioMessage.value = ""
             stopMedia()
         }
     }
 
     private fun startStream(url: String) {
         stopMedia()
-        val reader = MjpegStreamReader(url, serverConfiguration.sessionToken)
-        mjpegReader = reader
         _isStreaming.value = true
-        mediaJobs += viewModelScope.launch {
-            reader.frame.collect { frame -> _streamFrame.value = frame }
+
+        if (serverConfiguration.apiUrl.isNotBlank() && session is ApiRemoteEmulationSession) {
+            val apiSession = session as ApiRemoteEmulationSession
+            apiSession.connectWebSocket()
+            val ws = apiSession.gameWebSocket
+            if (ws != null) {
+                gameWebSocket = ws
+                mediaJobs += viewModelScope.launch { ws.frame.collect { frame -> _streamFrame.value = frame } }
+                mediaJobs += viewModelScope.launch { ws.message.collect { videoMessage.value = it } }
+            }
         }
-        mediaJobs += viewModelScope.launch { reader.message.collect { videoMessage.value = it } }
-        mediaJobs += viewModelScope.launch { reader.start() }
+
+        if (gameWebSocket == null) {
+            val reader = MjpegStreamReader(url, serverConfiguration.sessionToken)
+            mjpegReader = reader
+            mediaJobs += viewModelScope.launch { reader.frame.collect { frame -> _streamFrame.value = frame } }
+            mediaJobs += viewModelScope.launch { reader.message.collect { videoMessage.value = it } }
+            mediaJobs += viewModelScope.launch { reader.start() }
+        }
+
         val audio = PcmAudioStream("${serverConfiguration.apiUrl}/v1/audio", serverConfiguration.sessionToken)
         audioReader = audio
         mediaJobs += viewModelScope.launch { audio.message.collect { audioMessage.value = it } }
@@ -177,8 +216,8 @@ class RetroSalaViewModel : ViewModel() {
         } catch (error: Exception) { _lastControl.value = "Conexión cerrada; revisa la PC" }
     }
     private fun stopMedia() {
-        mjpegReader?.stop()
-        mjpegReader = null
+        gameWebSocket?.stop(); gameWebSocket = null
+        mjpegReader?.stop(); mjpegReader = null
         audioReader?.stop(); audioReader = null
         mediaJobs.forEach { it.cancel() }; mediaJobs.clear()
         _isStreaming.value = false
@@ -230,33 +269,23 @@ private fun StreamingScreen(
             contentScale = androidx.compose.ui.layout.ContentScale.Fit
         )
         else Text(lastControl, color = Color.White, modifier = Modifier.align(Alignment.Center).padding(32.dp), fontSize = 22.sp)
-        Row(
-            Modifier.align(Alignment.TopStart).padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xCC161B34)), shape = RoundedCornerShape(12.dp)) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("AMAYOMI RETRO", color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("·", color = Soft, fontSize = 13.sp)
-                    Text(lastControl, color = Soft, fontSize = 12.sp)
-                }
-            }
-        }
         Button(
             onClick = onClose,
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xCC4C1D3B))
         ) { Text("Salir", color = Color.White, fontWeight = FontWeight.Bold) }
-        Card(
-            Modifier.align(Alignment.BottomEnd).padding(16.dp).width(180.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xCC10162B)),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                val qr = remember(controllerUrl) { createQr(controllerUrl) }
-                Image(qr.asImageBitmap(), "QR mando", Modifier.width(100.dp).height(100.dp).background(Color.White))
-                Spacer(Modifier.height(6.dp))
-                Text("$controllerCount jugador(es)", color = Cyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        if (controllerCount == 0) {
+            Card(
+                Modifier.align(Alignment.BottomEnd).padding(16.dp).width(180.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xCC10162B)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    val qr = remember(controllerUrl) { createQr(controllerUrl) }
+                    Image(qr.asImageBitmap(), "QR mando", Modifier.width(100.dp).height(100.dp).background(Color.White))
+                    Spacer(Modifier.height(6.dp))
+                    Text("Escanea para jugar", color = Cyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -277,23 +306,23 @@ private fun CatalogScreen(
                 start = androidx.compose.ui.geometry.Offset(0f, 0f),
                 end = androidx.compose.ui.geometry.Offset(1000f, 800f)
             )
-        ).padding(30.dp),
-        horizontalArrangement = Arrangement.spacedBy(26.dp)
+        ).padding(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Header(platform, onBack)
             if (platform == null) {
-                Text("Elige tu plataforma", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text("Elige tu plataforma", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 PlatformRow(onSelect = onSelectPlatform, onUpcoming = {})
                 PremiumStatus(status, lastControl)
             } else {
-                Text(platform.label, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("Biblioteca disponible", color = Soft, fontSize = 17.sp)
+                Text(platform.label, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text("Biblioteca disponible", color = Soft, fontSize = 15.sp)
                 if (library.isEmpty()) EmptyLibrary(platform)
-                else LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(library) { game -> GameCard(game, selectedGame?.gameId == game.gameId) { onSelectGame(game) } }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         enabled = selectedGame != null,
                         onClick = onStart,
@@ -313,8 +342,8 @@ private fun CatalogScreen(
 
 @Composable
 private fun Header(platform: Platform?, onBack: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-        Image(painterResource(R.drawable.amayomi_retro_logo), "Logo Amayomi Retro", Modifier.width(280.dp).height(90.dp))
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Image(painterResource(R.drawable.amayomi_retro_logo), "Logo Amayomi Retro", Modifier.width(220.dp).height(70.dp))
         if (platform != null) Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Panel)) { Text("Plataformas") }
     }
 }
@@ -324,56 +353,73 @@ private fun PlatformRow(onSelect: (Platform) -> Unit, onUpcoming: () -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         PlatformCard("Game Boy Advance", "GBA", Violet, true) { onSelect(Platform.GBA) }
         PlatformCard("Nintendo DS", "NDS", Cyan, true) { onSelect(Platform.NDS) }
-        PlatformCard("PlayStation 1", "PRÓXIMAMENTE", Magenta, false, onUpcoming)
-        PlatformCard("PlayStation 2", "PRÓXIMAMENTE", Color(0xFF6366F1), false, onUpcoming)
+        PlatformCard("PlayStation 1", "PS1", Magenta, true) { onSelect(Platform.PS1) }
+        PlatformCard("PlayStation Portable", "PRÓXIMAMENTE", Color(0xFF6366F1), false, onUpcoming)
+        PlatformCard("PlayStation 2", "PRÓXIMAMENTE", Color(0xFF14B8A6), false, onUpcoming)
     }
 }
 
 @Composable
 private fun PlatformCard(title: String, subtitle: String, accent: Color, enabled: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val borderMod = if (focused) Modifier.border(3.dp, accent, RoundedCornerShape(24.dp)) else Modifier
     Card(
-        modifier = Modifier.width(190.dp).height(185.dp).alpha(if (enabled) 1f else .58f).clickable(enabled = enabled, onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(24.dp)
+        modifier = Modifier
+            .width(165.dp).height(155.dp)
+            .alpha(if (enabled) 1f else .58f)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable(enabled)
+            .then(borderMod)
+            .clickable(enabled = enabled, onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = if (focused) Color(0xFF2A2455) else Panel),
+        shape = RoundedCornerShape(24.dp)
     ) {
-        Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text("▶", color = accent, fontSize = 34.sp)
-            Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = if (enabled) Lime else Soft, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text("▶", color = accent, fontSize = 28.sp)
+            Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = if (enabled) Lime else Soft, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
 private fun GameCard(game: GameCatalogItem, selected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val highlight = selected || focused
     Card(
-        onClick = onClick, modifier = Modifier.width(230.dp).height(180.dp), shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF2A2455) else Panel)
+        onClick = onClick,
+        modifier = Modifier
+            .width(200.dp).height(155.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .then(if (highlight) Modifier.border(3.dp, Cyan, RoundedCornerShape(22.dp)) else Modifier),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = if (highlight) Color(0xFF2A2455) else Panel)
     ) {
-        Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(game.platform.label, color = Cyan, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(game.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-            Text("${game.players} jugador(es) · ${game.language}", color = Soft, fontSize = 14.sp)
-            if (selected) Text("Seleccionado", color = Color(0xFFD9CCFF), fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(game.platform.label, color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(game.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+            Text("${game.players} jugador(es) · ${game.language}", color = Soft, fontSize = 12.sp)
+            if (selected) Text("Seleccionado", color = Lime, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }
 
 @Composable
 private fun EmptyLibrary(platform: Platform) {
-    Card(Modifier.fillMaxWidth().height(180.dp), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) {
+    Card(Modifier.fillMaxWidth().height(140.dp), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No hay juegos disponibles para ${platform.label}.", color = Soft, fontSize = 20.sp, textAlign = TextAlign.Center)
+            Text("No hay juegos disponibles para ${platform.label}.", color = Soft, fontSize = 17.sp, textAlign = TextAlign.Center)
         }
     }
 }
 
 @Composable
 private fun PremiumStatus(status: RemoteSessionStatus, lastControl: String) {
-    Card(Modifier.fillMaxWidth().height(120.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF11172A)), shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Sala remota", color = Cyan, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text(status.label(), color = Color.White, fontSize = 19.sp)
-            Text(lastControl, color = Soft, fontSize = 14.sp)
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF11172A)), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Sala remota", color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(status.label(), color = Color.White, fontSize = 15.sp)
+            Text(lastControl, color = Soft, fontSize = 12.sp)
         }
     }
 }
@@ -381,15 +427,15 @@ private fun PremiumStatus(status: RemoteSessionStatus, lastControl: String) {
 @Composable
 private fun PairingPanel(url: String, controllerCount: Int) {
     val qr = remember(url) { createQr(url) }
-    Card(Modifier.width(300.dp).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color(0xFF10162B)), shape = RoundedCornerShape(28.dp)) {
-        Column(Modifier.fillMaxSize().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("Mando móvil", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-            Text("Escanea y juega desde tu celular", color = Soft, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(18.dp))
-            Image(qr.asImageBitmap(), "Código QR para mando móvil", Modifier.width(220.dp).height(220.dp).background(Color.White))
-            Spacer(Modifier.height(16.dp))
-            Text("$controllerCount jugador(es) conectado(s)", color = Cyan, fontWeight = FontWeight.Bold)
-            Text(url, color = Soft, fontSize = 11.sp, textAlign = TextAlign.Center)
+    Card(Modifier.width(250.dp).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color(0xFF10162B)), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text("Mando móvil", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Escanea y juega desde tu celular", color = Soft, fontSize = 13.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            Image(qr.asImageBitmap(), "Código QR para mando móvil", Modifier.width(180.dp).height(180.dp).background(Color.White))
+            Spacer(Modifier.height(10.dp))
+            Text("$controllerCount jugador(es) conectado(s)", color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(url, color = Soft, fontSize = 10.sp, textAlign = TextAlign.Center)
         }
     }
 }

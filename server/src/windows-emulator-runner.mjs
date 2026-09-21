@@ -5,19 +5,22 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from 'node:url';
 import { JpegFrames, jpegPart } from './media-stream.mjs';
 import { WindowsInput } from './windows-input.mjs';
+import { prepareMelonDS } from './melonds-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export class WindowsEmulatorRunner {
-  constructor({ mgbaExecutable = process.env.MGBA_EXECUTABLE, melondsExecutable = process.env.MELONDS_EXECUTABLE, biosDirectory, ffmpegExecutable = process.env.FFMPEG_EXECUTABLE }) {
-    this.executables = { gba: mgbaExecutable, ds: melondsExecutable };
+  constructor({ mgbaExecutable = process.env.MGBA_EXECUTABLE, melondsExecutable = process.env.MELONDS_EXECUTABLE, duckstationExecutable = process.env.DUCKSTATION_EXECUTABLE, ppssppExecutable = process.env.PPSSPP_EXECUTABLE, biosDirectory, ffmpegExecutable = process.env.FFMPEG_EXECUTABLE }) {
+    this.executables = { gba: mgbaExecutable, ds: melondsExecutable, ps1: duckstationExecutable, psp: ppssppExecutable };
     this.biosDirectory = path.resolve(biosDirectory);
     this.ffmpeg = ffmpegExecutable || "ffmpeg";
     this.processes = new Map();
     this._mjpegClients = new Set();
+    this._wsClients = new Set();
     this._audioClients = new Set();
     this.python = process.env.PYTHON_EXECUTABLE || 'python.exe';
     this.lastFrame = null;
+    this.lastRawFrame = null;
     this.media = { video: 'idle', audio: 'idle', frames: 0, audioBytes: 0 };
     this.starting = false;
   }
@@ -27,17 +30,18 @@ export class WindowsEmulatorRunner {
     this.starting = true;
     try {
     const executable = this.executables[session.platform];
-    if (!executable) throw new EmulatorLaunchError(`Falta configurar ${session.platform === "gba" ? "MGBA_EXECUTABLE" : "MELONDS_EXECUTABLE"}`);
+    const platformNames = { gba: 'MGBA_EXECUTABLE', ds: 'MELONDS_EXECUTABLE', ps1: 'DUCKSTATION_EXECUTABLE', psp: 'PPSSPP_EXECUTABLE' };
+    if (!executable) throw new EmulatorLaunchError(`Falta configurar ${platformNames[session.platform] || session.platform}`);
     await executableFile(executable, "El ejecutable configurado no existe o no se puede leer");
     await mkdir(session.saveDirectory, { recursive: true });
     if (session.platform === 'gba') await prepareSoftwareDisplay(executable);
+    else if (session.platform === 'ds') await prepareMelonDS(executable, session.saveDirectory);
 
-    // The official Windows mGBA 0.10.5 build exposes Lua through its UI, not
-    // through a supported --script command-line flag. Start the private game
-    // directly and relay controls as Windows keyboard messages instead.
-    const args = session.platform === 'gba'
-      ? ['-C', `savegamePath=${session.saveDirectory}`, '-C', `savestatePath=${session.saveDirectory}`, session.gamePath]
-      : [session.gamePath];
+    let args;
+    if (session.platform === 'gba') args = ['-C', `savegamePath=${session.saveDirectory}`, '-C', `savestatePath=${session.saveDirectory}`, session.gamePath];
+    else if (session.platform === 'ps1') args = ['-fullscreen', '-nogui', '--', session.gamePath];
+    else if (session.platform === 'psp') args = [session.gamePath, '--fullscreen'];
+    else args = [session.gamePath];
 
     const child = spawn(executable, args, { windowsHide: false, stdio: ["ignore", "pipe", "pipe"] });
     const record = { child, output: "", started: false, platform: session.platform };
@@ -50,7 +54,7 @@ export class WindowsEmulatorRunner {
       this.processes.delete(session.id);
       if (!this.processes.size) this.media.video = 'disconnected';
     });
-    await wait(1500);
+    await wait(600);
     if (record.error || record.exited) {
       this.processes.delete(session.id);
       throw new EmulatorLaunchError(`No se pudo iniciar el emulador: ${record.error?.message ?? `salió con código ${record.exited?.code}`}`);
@@ -60,7 +64,7 @@ export class WindowsEmulatorRunner {
     this.media = { video: 'connecting', audio: 'connecting', frames: 0, audioBytes: 0 };
     const hwnd = (await powershell('emulator-window.ps1', ['-EmulatorProcessId', String(child.pid)])).trim();
     if (!/^\d+$/.test(hwnd) || hwnd === '0') throw new Error('No se encontró la ventana del emulador');
-    record.input = new WindowsInput(this.python, path.join(root, 'scripts', 'input-bridge.py'), hwnd);
+    record.input = new WindowsInput(this.python, path.join(root, 'scripts', 'input-bridge.py'), hwnd, session.platform);
     await record.input.write([]);
     await this._startCapture(session.id, hwnd);
     this._startAudio(session.id);
@@ -72,14 +76,18 @@ export class WindowsEmulatorRunner {
   }
 
   async _startCapture(sessionId, hwnd) {
+    const isDS = this.processes.get(sessionId)?.platform === 'ds';
     const ffArgs = [
       '-hide_banner', '-loglevel', 'error', '-nostdin',
+      '-fflags', 'nobuffer', '-flags', 'low_delay',
+      '-probesize', '32', '-analyzeduration', '0',
       "-f", "gdigrab", '-draw_mouse', '0',
-      "-framerate", "30",
+      "-framerate", isDS ? '25' : '25',
       "-i", `hwnd=${hwnd}`,
-      "-vf", "scale=480:-2", '-pix_fmt', 'yuvj420p', '-threads', '2',
+      "-vf", isDS ? "crop=in_w:in_h-30:0:30,scale=384:-2" : "scale=320:-2",
+      '-pix_fmt', 'yuvj420p', '-threads', '1',
       "-f", "mjpeg",
-      "-q:v", "4",
+      "-q:v", isDS ? "2" : "5",
       "-an",
       "pipe:1"
     ];
@@ -93,8 +101,10 @@ export class WindowsEmulatorRunner {
     const timer = setTimeout(() => failed(new Error('La captura no produjo imagen en 10 segundos')), 10000);
     const frames = new JpegFrames(frame => {
       this.media.video = 'ready'; this.media.frames++;
+      this.lastRawFrame = frame;
       this.lastFrame = jpegPart(frame);
       this._broadcastFrame(this.lastFrame);
+      this._broadcastWsFrame(frame);
       ready();
     });
     ff.stderr?.on('data', chunk => { if (record) record.output = `${record.output}${chunk}`.slice(-4096); });
@@ -118,6 +128,19 @@ export class WindowsEmulatorRunner {
     }
   }
 
+  _broadcastWsFrame(frame) {
+    for (const ws of this._wsClients) {
+      if (ws.readyState !== 1) { this._wsClients.delete(ws); continue; }
+      if (ws.bufferedAmount < 128 * 1024) ws.send(frame);
+    }
+  }
+
+  addWsClient(ws) {
+    this._wsClients.add(ws);
+    if (this.lastRawFrame) ws.send(this.lastRawFrame);
+    ws.on('close', () => this._wsClients.delete(ws));
+  }
+
   addStreamClient(res) {
     res.writeHead(200, {
       "Content-Type": "multipart/x-mixed-replace; boundary=jpegframe",
@@ -135,8 +158,11 @@ export class WindowsEmulatorRunner {
     if (!record || record.stopping) return;
     this.media.audio = 'connecting';
     delete this.media.audioFormat;
-    const child = spawn(this.python, ['-u', path.join(root, 'scripts', 'capture-audio.py')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const emulatorPid = String(record.child.pid);
+    const captureExe = path.join(root, 'scripts', 'bin', 'ProcessAudioCapture.exe');
+    const child = spawn(captureExe, [emulatorPid], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     record.audio = child;
+    spawn(this.python, ['-u', path.join(root, 'scripts', 'unmute-process.py'), emulatorPid], { windowsHide: true, stdio: 'ignore' });
     let text = '';
     child.stderr.on('data', chunk => {
       text += chunk;
@@ -184,13 +210,13 @@ export class WindowsEmulatorRunner {
     res.once('close', () => this._audioClients.delete(res));
   }
 
-  mediaStatus() { return { ...this.media, clients: this._mjpegClients.size, audioClients: this._audioClients.size }; }
+  mediaStatus() { return { ...this.media, clients: this._mjpegClients.size, wsClients: this._wsClients.size, audioClients: this._audioClients.size }; }
 
   controlsSupported() { return true; }
 
   async control(sessionId, event) {
     const record = this.processes.get(sessionId);
-    if (!record?.started || record.platform !== "gba") return { delivered: false, reason: "El puente de controles GBA no está disponible" };
+    if (!record?.started) return { delivered: false, reason: "El puente de controles no está disponible" };
     try {
       await record.input.send(event);
       return { delivered: true };
@@ -211,9 +237,11 @@ export class WindowsEmulatorRunner {
     if (record?.audio && !record.audio.killed) record.audio.kill();
     record?.input?.close();
     this.lastFrame = null;
+    this.lastRawFrame = null;
     for (const res of this._mjpegClients) res.end();
+    for (const ws of this._wsClients) ws.close();
     for (const res of this._audioClients) res.end();
-    this._mjpegClients.clear(); this._audioClients.clear();
+    this._mjpegClients.clear(); this._wsClients.clear(); this._audioClients.clear();
     this.media.video = 'idle'; this.media.audio = 'idle';
   }
 

@@ -4,6 +4,8 @@ param(
   [string]$Port = "8080",
   [string]$MgbaExecutable = "C:\Program Files\mGBA\mGBA.exe",
   [string]$MelondsExecutable = "",
+  [string]$DuckstationExecutable = "",
+  [string]$PpssppExecutable = "",
   [string]$FfmpegExecutable = "",
   [string]$PythonExecutable = ""
 )
@@ -16,6 +18,13 @@ if (-not $BindAddress) {
 }
 
 # Auto-detect FFmpeg
+if (-not $MelondsExecutable) {
+  if ($env:MELONDS_EXECUTABLE) { $MelondsExecutable = $env:MELONDS_EXECUTABLE }
+  else {
+    $melonRuntime = Join-Path $PSScriptRoot '..\sessions\melonds-runtime\melonDS.exe'
+    if (Test-Path $melonRuntime) { $MelondsExecutable = (Resolve-Path $melonRuntime).Path }
+  }
+}
 if (-not $PythonExecutable) {
   $PythonExecutable = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
   if (-not $PythonExecutable) { $PythonExecutable = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe' }
@@ -30,11 +39,28 @@ if (-not (Test-Path $PythonExecutable)) { throw 'Configura PythonExecutable con 
 & $PythonExecutable -c 'import pyaudiowpatch'
 if ($LASTEXITCODE -ne 0) { throw 'Instala las dependencias de server/requirements-audio.txt con pip.' }
 
+if (-not $DuckstationExecutable) {
+  $duckDefault = Join-Path $env:LOCALAPPDATA 'Programs\DuckStation\duckstation-qt-x64-ReleaseLTCG.exe'
+  if (Test-Path $duckDefault) { $DuckstationExecutable = $duckDefault }
+}
+if (-not $PpssppExecutable) {
+  $ppssppDefault = Join-Path $env:LOCALAPPDATA 'Programs\PPSSPP\PPSSPPWindows64.exe'
+  if (Test-Path $ppssppDefault) { $PpssppExecutable = $ppssppDefault }
+}
+
+$cloudGames = Join-Path $env:OneDrive "RetroCloud-Games"
+if (Test-Path $cloudGames) {
+    $env:GAMES_DIRECTORY = $cloudGames
+    Write-Host "  Juegos (nube):    $cloudGames" -ForegroundColor Cyan
+}
+
 $env:LOCAL_PC_BIND_ADDRESS = $BindAddress
 $env:PORT = $Port
 $env:SESSION_API_TOKEN = $SessionToken
 $env:MGBA_EXECUTABLE = $MgbaExecutable
 $env:MELONDS_EXECUTABLE = $MelondsExecutable
+$env:DUCKSTATION_EXECUTABLE = $DuckstationExecutable
+$env:PPSSPP_EXECUTABLE = $PpssppExecutable
 $env:FFMPEG_EXECUTABLE = $FfmpegExecutable
 $env:PYTHON_EXECUTABLE = $PythonExecutable
 
@@ -46,7 +72,14 @@ Write-Host ""
 Write-Host "  IP del servidor:  $BindAddress" -ForegroundColor Green
 Write-Host "  Puerto:           $Port" -ForegroundColor Green
 Write-Host "  mGBA:             $MgbaExecutable" -ForegroundColor Green
+if ($MelondsExecutable) { Write-Host "  MelonDS:          $MelondsExecutable" -ForegroundColor Green }
+else { Write-Host "  MelonDS:          (no configurado - DS no disponible)" -ForegroundColor Yellow }
+if ($DuckstationExecutable) { Write-Host "  DuckStation:      $DuckstationExecutable" -ForegroundColor Green }
+else { Write-Host "  DuckStation:      (no configurado - PS1 no disponible)" -ForegroundColor Yellow }
+if ($PpssppExecutable) { Write-Host "  PPSSPP:           $PpssppExecutable" -ForegroundColor Green }
+else { Write-Host "  PPSSPP:           (no configurado - PSP no disponible)" -ForegroundColor Yellow }
 Write-Host "  FFmpeg:           $FfmpegExecutable" -ForegroundColor Green
+Write-Host "  Audio loopback:   Habilitado (WASAPI)" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Configura la APK con:" -ForegroundColor Yellow
 Write-Host "    RETROSALA_SERVER_MODE = local_pc" -ForegroundColor Yellow

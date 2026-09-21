@@ -25,7 +25,7 @@ class PcmAudioStream(private val url: String, private val token: String) {
             active = connection
             var track: AudioTrack? = null
             try {
-                connection.connectTimeout = 4000; connection.readTimeout = 3000
+                connection.connectTimeout = 5000; connection.readTimeout = 15000
                 connection.setRequestProperty("Authorization", "Bearer $token")
                 check(connection.responseCode == 200) { "Audio HTTP ${connection.responseCode}" }
                 check(connection.getHeaderField("x-audio-encoding") == "pcm_s16le") { "Formato de audio incompatible" }

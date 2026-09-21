@@ -18,8 +18,8 @@ android {
         applicationId = "com.retrosala.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.3.3"
+        versionCode = 10
+        versionName = "0.5.0"
         buildConfigField("String", "RETROSALA_SERVER_MODE", "\"${configuredString("RETROSALA_SERVER_MODE", "demo")}\"")
         buildConfigField("String", "RETROSALA_API_URL", "\"${configuredString("RETROSALA_API_URL", "")}\"")
         buildConfigField("String", "RETROSALA_SIGNALING_URL", "\"${configuredString("RETROSALA_SIGNALING_URL", "")}\"")
@@ -46,6 +46,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

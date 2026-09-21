@@ -2,7 +2,7 @@ package com.retrosala.app.catalog
 
 import com.retrosala.app.emulation.SessionApi
 
-enum class Platform(val label: String) { GBA("Game Boy Advance"), NDS("Nintendo DS") }
+enum class Platform(val label: String) { GBA("Game Boy Advance"), NDS("Nintendo DS"), PS1("PlayStation 1"), PSP("PlayStation Portable") }
 
 data class GameCatalogItem(
     val gameId: String,
@@ -37,7 +37,12 @@ class RemoteCatalogApi(private val sessionApi: SessionApi) : CatalogApi {
         GameCatalogItem(
             gameId = game.gameId,
             title = game.title,
-            platform = if (game.platform == "nds") Platform.NDS else Platform.GBA,
+            platform = when (game.platform) {
+                "ds" -> Platform.NDS
+                "ps1" -> Platform.PS1
+                "psp" -> Platform.PSP
+                else -> Platform.GBA
+            },
             language = game.language,
             emulationServer = game.emulationServer,
             available = game.available,

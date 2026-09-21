@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { constants } from "node:fs";
+import { execFile } from "node:child_process";
 
-const allowedPlatforms = new Set(["gba", "ds"]);
+const allowedPlatforms = new Set(["gba", "ds", "ps1", "psp"]);
 
 export class SessionManager {
   constructor({ gamesDirectory, savesDirectory, sessionsDirectory, now = () => new Date().toISOString(), runner = null }) {
@@ -59,7 +60,7 @@ export class SessionManager {
         games.push({
           gameId,
           title: typeof game.title === "string" && game.title.trim() ? game.title.trim() : gameId,
-          platform: game.platform === "ds" ? "nds" : "gba",
+          platform: game.platform,
           language: typeof game.language === "string" ? game.language : "es",
           emulationServer: typeof game.emulationServer === "string" ? game.emulationServer : "default",
           available: true,
@@ -74,6 +75,14 @@ export class SessionManager {
     return games;
   }
 
+  activeSessionId() {
+    for (const [id, s] of this.sessions) { if (s.status === 'live' || s.status === 'ready') return id; }
+    return null;
+  }
+  activePlatform() {
+    for (const [, s] of this.sessions) { if (s.status === 'live' || s.status === 'ready') return s.platform; }
+    return null;
+  }
   get(id) { return publicSession(this.#session(id)); }
   async control(id, input) {
     const session = this.#session(id);
@@ -114,7 +123,19 @@ export class SessionManager {
   async close(id) {
     const s = this.#session(id);
     if (this.runner) await this.runner.close(s.id);
-    s.status = "closed"; s.closedAt = this.now(); return publicSession(s);
+    s.status = "closed"; s.closedAt = this.now();
+    this.#releaseCloudFile(s.gamePath);
+    return publicSession(s);
+  }
+  #releaseCloudFile(filePath) {
+    if (!filePath || !filePath.includes('OneDrive')) return;
+    execFile('attrib', ['+U', '-P', filePath], { windowsHide: true }, () => {});
+    const dir = path.dirname(filePath);
+    const base = path.basename(filePath, path.extname(filePath));
+    const binFile = path.join(dir, base + '.bin');
+    access(binFile, constants.R_OK).then(() =>
+      execFile('attrib', ['+U', '-P', binFile], { windowsHide: true }, () => {})
+    ).catch(() => {});
   }
 
   #session(id) { const session = this.sessions.get(id); if (!session) throw new SessionError(404, "sesión no encontrada"); return session; }
